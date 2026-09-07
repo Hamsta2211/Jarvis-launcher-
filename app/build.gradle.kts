@@ -64,7 +64,7 @@ android {
 }
 
 base {
-  archivesName.set("100")
+  archivesName.set("fullversion")
 }
 
 // Configure the Secrets Gradle Plugin to use .env and .env.example files
