@@ -610,19 +610,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     " [Fallback Key #${jarvisResult.keyUsedIndex}]"
                 } else ""
 
-                val action = jarvisResult.parsedAction
+                val actions = jarvisResult.parsedActions
                 var actionType = ActionType.NONE
                 var actionPayload: String? = null
-                var executedNote = ""
+                val executedNotesList = mutableListOf<String>()
 
-                if (action != null) {
+                for (action in actions) {
                     when (action.type) {
                         "APP_LAUNCH" -> {
                             val appName = action.rawJson.optString("name")
                             val launchRes = appLauncherHelper.launchAppByName(appName)
                             actionType = ActionType.APP_LAUNCH
                             actionPayload = if (launchRes.first) "App '${launchRes.second}' gestartet." else "Konnte '$appName' nicht finden."
-                            executedNote = "\n\n🚀 $actionPayload"
+                            executedNotesList.add("🚀 $actionPayload")
                         }
                         "SEARCH_WEB" -> {
                             val query = action.rawJson.optString("query")
@@ -638,7 +638,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             addCalendarEvent(newEvent)
                             actionType = ActionType.CALENDAR
                             actionPayload = "$title am $date um $time"
-                            executedNote = "\n\n📅 Termin eingetragen: $title ($date, $time Uhr)"
+                            executedNotesList.add("📅 Termin eingetragen: $title ($date, $time Uhr)")
                         }
                         "ADD_REMINDER" -> {
                             val title = action.rawJson.optString("title", "Erinnerung")
@@ -647,7 +647,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             addReminder(newReminder)
                             actionType = ActionType.REMINDER
                             actionPayload = "$title ($dueTime)"
-                            executedNote = "\n\n⏰ Erinnerung gespeichert: $title um $dueTime Uhr"
+                            executedNotesList.add("⏰ Erinnerung gespeichert: $title ($dueTime)")
                         }
                         "START_TIMER" -> {
                             val seconds = action.rawJson.optLong("seconds", 300)
@@ -655,10 +655,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             startTimer(seconds, label)
                             actionType = ActionType.TIMER
                             actionPayload = "$label: ${seconds}s"
-                            executedNote = "\n\n⏱️ Timer gestartet: $seconds Sekunden ($label)"
+                            executedNotesList.add("⏱️ Timer gestartet: $seconds Sekunden ($label)")
                         }
                     }
                 }
+
+                val executedNote = if (executedNotesList.isNotEmpty()) {
+                    "\n\n" + executedNotesList.joinToString("\n")
+                } else ""
 
                 val finalSpokenText = (if (jarvisResult.replyText.isNotBlank()) jarvisResult.replyText else "")
                     .replace(Regex("""\[\[ACTION:.*?\]\]""", RegexOption.DOT_MATCHES_ALL), "")
@@ -801,6 +805,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val updated = _calendarEvents.value + event
         _calendarEvents.value = updated
         settingsManager.saveCalendarEvents(updated)
+        jarvisNotificationManager.scheduleCalendarEvent(event.title, event.date, event.time)
     }
 
     fun deleteCalendarEvent(id: String) {

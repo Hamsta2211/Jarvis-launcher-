@@ -319,6 +319,19 @@ class JarvisNotificationManager private constructor(private val context: Context
             val now = Calendar.getInstance()
             val clean = dueTime.trim()
 
+            // Check relative pattern e.g. "in 1 min", "in 5 minuten", "in 30 sekunden", "1 min"
+            val relMatch = Regex("""(?:in\s+)?(\d+)\s*(min|minuten|sek|sekunden|std|stunden)""", RegexOption.IGNORE_CASE).find(clean)
+            if (relMatch != null) {
+                val amount = relMatch.groupValues[1].toLongOrNull() ?: 1L
+                val unit = relMatch.groupValues[2].lowercase()
+                val addedMs = when {
+                    unit.startsWith("sek") -> amount * 1000L
+                    unit.startsWith("std") -> amount * 3600 * 1000L
+                    else -> amount * 60 * 1000L
+                }
+                return System.currentTimeMillis() + addedMs
+            }
+
             // If time only like "14:30"
             if (clean.matches(Regex("""\d{1,2}:\d{2}"""))) {
                 val parts = clean.split(":")
@@ -336,8 +349,8 @@ class JarvisNotificationManager private constructor(private val context: Context
                 val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
                 sdf.parse(clean)?.time ?: (System.currentTimeMillis() + 60000)
             } else {
-                // Default: 10 minutes from now
-                System.currentTimeMillis() + 10 * 60 * 1000
+                // Default: 5 minutes from now
+                System.currentTimeMillis() + 5 * 60 * 1000
             }
         } catch (e: Exception) {
             System.currentTimeMillis() + 60000

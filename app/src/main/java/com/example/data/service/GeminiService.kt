@@ -10,12 +10,16 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 data class GeminiJarvisResult(
     val replyText: String,
     val keyUsedIndex: Int = 0,
-    val parsedAction: JarvisParsedAction? = null,
+    val parsedActions: List<JarvisParsedAction> = emptyList(),
+    val parsedAction: JarvisParsedAction? = parsedActions.firstOrNull(),
     val thoughtText: String? = null
 )
 
@@ -74,7 +78,7 @@ class GeminiService(private val settingsManager: SettingsManager) {
                         GeminiJarvisResult(
                             replyText = result.first,
                             keyUsedIndex = originalIndex,
-                            parsedAction = result.second,
+                            parsedActions = result.second,
                             thoughtText = result.third
                         )
                     )
@@ -105,20 +109,29 @@ class GeminiService(private val settingsManager: SettingsManager) {
         isThinkingEnabled: Boolean,
         onThoughtChunk: (String) -> Unit,
         onTextChunk: (String) -> Unit
-    ): Triple<String, JarvisParsedAction?, String?> {
+    ): Triple<String, List<JarvisParsedAction>, String?> {
         val appsListHint = availableAppNames.take(200).joinToString(", ")
+        val currentDateStr = SimpleDateFormat("EEEE, dd. MMMM yyyy", Locale.GERMANY).format(Date())
+        val currentIsoDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        val currentTimeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
 
         val systemInstructionText = buildString {
             appendLine("Du bist J.A.R.V.I.S. (Just A Rather Very Intelligent System), die hochentwickelte KI aus Iron Man, integriert in diesen Android Sci-Fi Launcher.")
             appendLine("Dein Tonfall: Höflich, intelligent, loyal, britisch-aristokratisch (\"Sehr wohl, Sir.\", \"Ich leite das unverzüglich ein.\", \"Systeme einsatzbereit.\"). Antworte prägnant und elegant auf Deutsch.")
+            appendLine("AKTUELLE SYSTEM-ZEIT: $currentDateStr (ISO-Datum: $currentIsoDate, Uhrzeit: $currentTimeStr Uhr)")
             appendLine("Installierte Apps auf diesem Gerät: $appsListHint")
             if (isThinkingEnabled) {
                 appendLine("WICHTIG (Denkprozess): Analysiere kurz Deine kognitiven Schritte und Systemparameter im internen Denkprozess.")
             }
-            appendLine("WICHTIG ZU APP-STARTS:")
-            appendLine("Wenn der Nutzer darum bittet eine App zu öffnen, zu starten oder aufzurufen (z.B. WhatsApp, Spotify, YouTube, Rechner, Kamera, Galerie, Einstellungen, Kontakte etc.), antworte stets bejahend und loyal (z.B. \"Ich öffne WhatsApp für Sie, Sir.\") und hänge IMMER am Ende die passende ACTION 'APP_LAUNCH' an. Behaupte NIEMALS, dass eine App nicht installiert sei.")
+            appendLine("WICHTIG ZU KALENDER, ERINNERUNGEN UND TIMERN:")
+            appendLine("- Wenn der Nutzer einen Termin / Kalendereintrag möchte, erstelle zwingend [[ACTION:{\"type\":\"ADD_CALENDAR\",\"title\":\"Terminname\",\"date\":\"$currentIsoDate\",\"time\":\"HH:MM\"}]]")
+            appendLine("- Wenn der Nutzer eine Erinnerung möchte, erstelle zwingend [[ACTION:{\"type\":\"ADD_REMINDER\",\"title\":\"Aufgabe\",\"dueTime\":\"HH:MM\"}]]")
+            appendLine("- Wenn der Nutzer einen Countdown / Timer möchte (z.B. in 1 Min), erstelle zwingend [[ACTION:{\"type\":\"START_TIMER\",\"seconds\":SekundenZahl,\"label\":\"Grund\"}]]")
+            appendLine("- Wenn der Nutzer MEHRERE Dinge fordert (z.B. Erinnerung UND Termin), erstelle MEHRERE ACTION-Zeilen am Ende Deiner Antwort!")
+            appendLine("- Behaupte NIEMALS, dass Du einen Termin, eine Erinnerung oder einen Timer erstellt hast, ohne die entsprechende [[ACTION:...]] anzuhängen!")
+            appendLine("- Für 'Erinnerungen' erstelle immer ADD_REMINDER. Öffne NICHT die Reminder-App mit APP_LAUNCH, außer der Nutzer verlangt explizit 'Öffne die Reminder-App'.")
             appendLine("")
-            appendLine("VERFÜGBARE AKTIONEN (Füge bei Anfragen genau EINE Zeile am Ende an):")
+            appendLine("VERFÜGBARE AKTIONEN:")
             appendLine("- App starten: [[ACTION:{\"type\":\"APP_LAUNCH\",\"name\":\"App-Name\"}]]")
             appendLine("- Internetsuche (Web): [[ACTION:{\"type\":\"SEARCH_WEB\",\"query\":\"Suchbegriff\"}]]")
             appendLine("- Kalendertermin anlegen: [[ACTION:{\"type\":\"ADD_CALENDAR\",\"title\":\"Terminname\",\"date\":\"YYYY-MM-DD\",\"time\":\"HH:MM\"}]]")
@@ -249,16 +262,16 @@ class GeminiService(private val settingsManager: SettingsManager) {
 
         val rawFullText = fullResponse.toString()
         val actionRegex = Regex("""\[\[ACTION:(\{.*?\})\]\]""", RegexOption.DOT_MATCHES_ALL)
-        val match = actionRegex.find(rawFullText)
+        val matches = actionRegex.findAll(rawFullText).toList()
+        val parsedActions = mutableListOf<JarvisParsedAction>()
         var cleanText = rawFullText
-        var parsedAction: JarvisParsedAction? = null
 
-        if (match != null) {
-            cleanText = rawFullText.replace(match.value, "").trim()
+        for (match in matches) {
+            cleanText = cleanText.replace(match.value, "").trim()
             try {
                 val actionJson = JSONObject(match.groupValues[1])
                 val type = actionJson.optString("type")
-                parsedAction = JarvisParsedAction(type = type, rawJson = actionJson)
+                parsedActions.add(JarvisParsedAction(type = type, rawJson = actionJson))
             } catch (e: Exception) {
                 // ignore action json parse error
             }
@@ -269,6 +282,6 @@ class GeminiService(private val settingsManager: SettingsManager) {
         } else null
 
         val finalOutputText = cleanText.ifEmpty { "Keine Antwort erhalten." }
-        return Triple<String, JarvisParsedAction?, String?>(finalOutputText, parsedAction, thoughtResult)
+        return Triple<String, List<JarvisParsedAction>, String?>(finalOutputText, parsedActions, thoughtResult)
     }
 }
