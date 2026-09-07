@@ -1,0 +1,6 @@
+{
+  "name": "Jarvis Launcher",
+  "description": "Futuristic Jarvis sci-fi HUD launcher with interactive central arc reactor, voice AI assistant, orbiting apps, live widgets, and app drawer.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
