@@ -28,6 +28,7 @@ class GeminiService(private val settingsManager: SettingsManager) {
         .build()
 
     private val candidateModels = listOf(
+        "gemini-3.8-flash",
         "gemini-2.5-flash",
         "gemini-2.0-flash",
         "gemini-2.5-pro"

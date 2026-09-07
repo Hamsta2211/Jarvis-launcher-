@@ -57,6 +57,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.example.data.model.AppItem
+import com.example.data.service.AppLauncherHelper
 import com.example.data.service.SettingsManager
 import com.example.ui.theme.JarvisCyan
 import com.example.ui.theme.JarvisCyanDark
@@ -71,6 +73,7 @@ fun SettingsDialog(
     isOpen: Boolean,
     onDismiss: () -> Unit,
     settingsManager: SettingsManager,
+    installedApps: List<AppItem> = emptyList(),
     currentOrbitSlotCount: Int = 8,
     onOrbitSlotCountChanged: (Int) -> Unit = {},
     onSave: (geminiKey: String, fallbackKeys: List<String>, tavilyKey: String, city: String, darkMode: Boolean) -> Unit
@@ -78,6 +81,10 @@ fun SettingsDialog(
     if (!isOpen) return
 
     val context = LocalContext.current
+    val allInstalledAppsList = remember(installedApps) {
+        if (installedApps.isNotEmpty()) installedApps
+        else AppLauncherHelper(context).getAllInstalledApps()
+    }
     var primaryKey by remember { mutableStateOf(settingsManager.geminiApiKey) }
     val fallbackKeys = remember { mutableStateListOf<String>().apply { addAll(settingsManager.fallbackApiKeys) } }
     var tavilyKey by remember { mutableStateOf(settingsManager.tavilyApiKey) }
@@ -301,7 +308,7 @@ fun SettingsDialog(
 
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Wähle Deine bevorzugte Musik-App, die beim Antippen geöffnet werden soll:",
+                        text = "Wähle eine App, die beim Antippen des Musik-Widgets geöffnet werden soll:",
                         color = Color.White.copy(alpha = 0.65f),
                         fontSize = 11.sp
                     )
@@ -310,6 +317,41 @@ fun SettingsDialog(
 
                     var selectedMusicPackage by remember { mutableStateOf(settingsManager.defaultMusicAppPackage) }
                     var selectedMusicName by remember { mutableStateOf(settingsManager.defaultMusicAppName) }
+                    var musicAppSearchQuery by remember { mutableStateOf("") }
+                    var showAllAppsPicker by remember { mutableStateOf(false) }
+
+                    // Current Selected App Display
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(JarvisCyan.copy(alpha = 0.15f))
+                            .border(1.dp, JarvisCyan.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                            .padding(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Aktuell aktiv: $selectedMusicName",
+                                color = JarvisCyanLight,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            if (selectedMusicPackage.isNotEmpty()) {
+                                Text(
+                                    text = selectedMusicPackage,
+                                    color = Color.White.copy(alpha = 0.5f),
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
 
                     val popularMusicApps = listOf(
                         Triple("Automatisch", "", "⚡"),
@@ -320,12 +362,10 @@ fun SettingsDialog(
                         Triple("TIDAL", "com.aspiro.tidal", "🌊"),
                         Triple("Amazon Music", "com.amazon.mp3", "📦"),
                         Triple("SoundCloud", "com.soundcloud.android", "🟠"),
-                        Triple("Samsung Music", "com.sec.android.app.music", "📱"),
-                        Triple("Poweramp", "com.maxmpz.audioplayer", "🎵"),
-                        Triple("VLC", "org.videolan.vlc", "🟧")
+                        Triple("Poweramp", "com.maxmpz.audioplayer", "🎵")
                     )
 
-                    // Display choices as clean selectable chips
+                    // Popular Chips
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         popularMusicApps.chunked(3).forEach { rowApps ->
                             Row(
@@ -338,7 +378,7 @@ fun SettingsDialog(
                                         modifier = Modifier
                                             .weight(1f)
                                             .clip(RoundedCornerShape(6.dp))
-                                            .background(if (isSelected) JarvisCyan.copy(alpha = 0.3f) else JarvisDarkBg)
+                                            .background(if (isSelected) JarvisCyan.copy(alpha = 0.35f) else JarvisDarkBg)
                                             .border(
                                                 1.dp,
                                                 if (isSelected) JarvisCyan else JarvisSurfaceBorder,
@@ -360,6 +400,120 @@ fun SettingsDialog(
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                             maxLines = 1
                                         )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Toggle Button for searching ALL Installed Apps
+                    OutlinedButton(
+                        onClick = { showAllAppsPicker = !showAllAppsPicker },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisCyan),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.6f)),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (showAllAppsPicker) Icons.Default.Close else Icons.Default.Apps,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (showAllAppsPicker) "App-Suche schließen" else "Alle installierten Apps durchsuchen (${allInstalledAppsList.size} Apps)...",
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+
+                    if (showAllAppsPicker) {
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Search Input
+                        OutlinedTextField(
+                            value = musicAppSearchQuery,
+                            onValueChange = { musicAppSearchQuery = it },
+                            placeholder = { Text("App Name suchen...", color = Color.White.copy(alpha = 0.4f), fontSize = 12.sp) },
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = JarvisCyan, modifier = Modifier.size(18.dp)) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = JarvisCyan,
+                                unfocusedBorderColor = JarvisSurfaceBorder,
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            ),
+                            singleLine = true
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        val filteredApps = remember(musicAppSearchQuery, allInstalledAppsList) {
+                            if (musicAppSearchQuery.isBlank()) {
+                                allInstalledAppsList
+                            } else {
+                                val query = musicAppSearchQuery.trim().lowercase()
+                                allInstalledAppsList.filter {
+                                    it.label.lowercase().contains(query) || it.packageName.lowercase().contains(query)
+                                }
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 180.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(JarvisDarkBg)
+                                .border(1.dp, JarvisSurfaceBorder, RoundedCornerShape(6.dp))
+                                .verticalScroll(rememberScrollState())
+                                .padding(4.dp)
+                        ) {
+                            Column {
+                                if (filteredApps.isEmpty()) {
+                                    Text(
+                                        text = "Keine passenden Apps gefunden.",
+                                        color = Color.White.copy(alpha = 0.5f),
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.padding(8.dp)
+                                    )
+                                } else {
+                                    filteredApps.forEach { app ->
+                                        val isSelected = selectedMusicPackage == app.packageName
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(if (isSelected) JarvisCyan.copy(alpha = 0.25f) else Color.Transparent)
+                                                .clickable {
+                                                    selectedMusicPackage = app.packageName
+                                                    selectedMusicName = app.label
+                                                    settingsManager.defaultMusicAppPackage = app.packageName
+                                                    settingsManager.defaultMusicAppName = app.label
+                                                }
+                                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = app.label,
+                                                    color = if (isSelected) JarvisCyanLight else Color.White,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                                )
+                                                Text(
+                                                    text = app.packageName,
+                                                    color = Color.White.copy(alpha = 0.45f),
+                                                    fontSize = 10.sp
+                                                )
+                                            }
+                                            if (isSelected) {
+                                                Text("✓", color = JarvisCyanLight, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
                                     }
                                 }
                             }

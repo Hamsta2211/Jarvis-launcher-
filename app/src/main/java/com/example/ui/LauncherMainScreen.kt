@@ -268,6 +268,7 @@ fun LauncherMainScreen(
             isOpen = isSettingsOpen,
             onDismiss = { viewModel.closeSettings() },
             settingsManager = viewModel.settingsManager,
+            installedApps = installedApps,
             currentOrbitSlotCount = orbitApps.size,
             onOrbitSlotCountChanged = { count -> viewModel.setOrbitSlotCount(count) },
             onSave = { geminiKey, fallbackKeys, tavilyKey, city, darkMode ->
