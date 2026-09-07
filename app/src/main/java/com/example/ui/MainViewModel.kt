@@ -547,13 +547,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // Chat with Jarvis (Streaming + Thinking)
-    fun sendUserMessage(text: String) {
+    fun sendUserMessage(
+        text: String,
+        attachedImageBase64: String? = null,
+        attachedFileName: String? = null,
+        attachedMimeType: String? = null
+    ) {
         val trimmed = text.trim()
-        if (trimmed.isEmpty() || _isThinking.value) return
+        if (trimmed.isEmpty() && attachedImageBase64.isNullOrBlank() || _isThinking.value) return
 
+        val displayText = if (trimmed.isNotBlank()) trimmed else "📎 [Angehängte Datei: ${attachedFileName ?: "Bild/Datei"}]"
         val userMsg = ChatMessage(
             sender = MessageSender.USER,
-            text = trimmed
+            text = displayText,
+            attachedImageBase64 = attachedImageBase64,
+            attachedFileName = attachedFileName,
+            attachedMimeType = attachedMimeType
         )
         val streamingMsgId = java.util.UUID.randomUUID().toString()
         val jarvisStreamingPlaceholder = ChatMessage(
@@ -582,6 +591,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 conversationHistory = history,
                 availableAppNames = appNames,
                 isThinkingEnabled = _isThinkingEnabled.value,
+                attachedImageBase64 = attachedImageBase64,
+                attachedMimeType = attachedMimeType,
                 onThoughtChunk = { thoughtSoFar ->
                     _chatMessages.update { list ->
                         list.map { msg ->

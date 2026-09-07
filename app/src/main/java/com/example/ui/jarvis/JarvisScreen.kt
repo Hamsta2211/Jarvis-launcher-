@@ -3,7 +3,14 @@ package com.example.ui.jarvis
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.util.Base64
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -16,6 +23,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,6 +36,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -46,6 +55,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
@@ -55,9 +66,10 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.HourglassBottom
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
-import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Psychology
@@ -98,6 +110,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -122,6 +136,7 @@ import com.example.ui.theme.JarvisNavy
 import com.example.ui.theme.JarvisSurfaceDark
 import com.example.ui.theme.JarvisSurfaceBorder
 import kotlinx.coroutines.launch
+import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -140,7 +155,7 @@ fun JarvisScreen(
     isSpeaking: Boolean = false,
     isVoiceOutputEnabled: Boolean = true,
     isVoiceChatMode: Boolean = false,
-    onSendMessage: (String) -> Unit,
+    onSendMessage: (text: String, imageBase64: String?, fileName: String?, mimeType: String?) -> Unit,
     onStartVoice: () -> Unit,
     onStopVoice: () -> Unit,
     onToggleThinking: () -> Unit,
@@ -161,11 +176,69 @@ fun JarvisScreen(
 ) {
     val context = LocalContext.current
     var inputText by remember { mutableStateOf("") }
+    var attachedImageBase64 by remember { mutableStateOf<String?>(null) }
+    var attachedFileName by remember { mutableStateOf<String?>(null) }
+    var attachedMimeType by remember { mutableStateOf<String?>(null) }
+    var showMegaMenuSheet by remember { mutableStateOf(false) }
+
     val listState = rememberLazyListState()
     var showSessionsSheet by remember { mutableStateOf(false) }
     var renameSessionTarget by remember { mutableStateOf<ChatSession?>(null) }
     var deleteSessionTarget by remember { mutableStateOf<ChatSession?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    // Camera Capture Launcher
+    val cameraCaptureLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap ->
+        if (bitmap != null) {
+            val baos = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 85, baos)
+            val bytes = baos.toByteArray()
+            attachedImageBase64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+            attachedFileName = "Foto_Kamera.jpg"
+            attachedMimeType = "image/jpeg"
+            Toast.makeText(context, "Foto aufgenommen", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Gallery Picker Launcher
+    val galleryPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                if (bytes != null) {
+                    attachedImageBase64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                    attachedFileName = "Bild_Galerie.jpg"
+                    attachedMimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
+                    Toast.makeText(context, "Bild ausgewählt", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Fehler beim Laden des Bildes", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // Document / File Picker Launcher
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                if (bytes != null) {
+                    attachedImageBase64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                    attachedFileName = "Datei_Anhang"
+                    attachedMimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
+                    Toast.makeText(context, "Datei angehängt", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Fehler beim Laden der Datei", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     // Auto-scroll on new message or during streaming tokens
     val lastMsgLength = chatMessages.lastOrNull()?.text?.length ?: 0
@@ -239,7 +312,7 @@ fun JarvisScreen(
                 if (chatMessages.isEmpty()) {
                     JarvisEmptyState(
                         onSelectPrompt = { prompt ->
-                            onSendMessage(prompt)
+                            onSendMessage(prompt, null, null, null)
                         }
                     )
                 } else {
@@ -266,7 +339,7 @@ fun JarvisScreen(
                                     if (isSpeaking) onStopSpeaking() else onSpeakMessage(text)
                                 },
                                 onQuickAction = { actionText ->
-                                    onSendMessage(actionText)
+                                    onSendMessage(actionText, null, null, null)
                                 }
                             )
                         }
@@ -293,7 +366,7 @@ fun JarvisScreen(
             // 5. QUICK PROMPTS CHIPS BAR
             QuickPromptsBar(
                 onPromptClicked = { prompt ->
-                    onSendMessage(prompt)
+                    onSendMessage(prompt, null, null, null)
                 },
                 modifier = Modifier.padding(vertical = 4.dp)
             )
@@ -303,9 +376,17 @@ fun JarvisScreen(
                 inputText = inputText,
                 onInputChanged = { inputText = it },
                 onSend = {
-                    if (inputText.isNotBlank() && !isThinking) {
-                        onSendMessage(inputText)
+                    if ((inputText.isNotBlank() || attachedImageBase64 != null) && !isThinking) {
+                        onSendMessage(
+                            inputText,
+                            attachedImageBase64,
+                            attachedFileName,
+                            attachedMimeType
+                        )
                         inputText = ""
+                        attachedImageBase64 = null
+                        attachedFileName = null
+                        attachedMimeType = null
                     }
                 },
                 isThinking = isThinking,
@@ -313,8 +394,52 @@ fun JarvisScreen(
                 onToggleVoice = {
                     if (isListening) onStopVoice() else onStartVoice()
                 },
+                onOpenMegaMenu = { showMegaMenuSheet = true },
+                attachedFileName = attachedFileName,
+                onRemoveAttachment = {
+                    attachedImageBase64 = null
+                    attachedFileName = null
+                    attachedMimeType = null
+                },
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
             )
+        }
+
+        // CHATGPT MEGA MENU BOTTOM SHEET
+        if (showMegaMenuSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showMegaMenuSheet = false },
+                containerColor = JarvisNavy,
+                dragHandle = {
+                    Box(
+                        modifier = Modifier
+                            .padding(vertical = 8.dp)
+                            .size(width = 40.dp, height = 4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(JarvisCyan.copy(alpha = 0.5f))
+                    )
+                }
+            ) {
+                JarvisMegaMenuContent(
+                    isThinkingEnabled = isThinkingEnabled,
+                    onOptionSelected = { action ->
+                        showMegaMenuSheet = false
+                        when (action) {
+                            "camera" -> cameraCaptureLauncher.launch(null)
+                            "gallery" -> galleryPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                            "file" -> filePickerLauncher.launch("*/*")
+                            "voice" -> onToggleVoiceChatMode()
+                            "think" -> onToggleThinking()
+                            "agenda" -> onOpenAgenda()
+                            "search" -> {
+                                if (inputText.isBlank()) inputText = "Suche im Internet nach: "
+                            }
+                        }
+                    }
+                )
+            }
         }
 
         // CHAT SESSIONS MODAL BOTTOM SHEET
@@ -808,12 +933,59 @@ private fun ChatMessageItem(
                     .padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
                 Column {
-                    Text(
-                        text = message.text,
-                        color = Color.White,
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp
-                    )
+                    if (!message.attachedImageBase64.isNullOrBlank()) {
+                        val bitmap = remember(message.attachedImageBase64) {
+                            try {
+                                val bytes = Base64.decode(message.attachedImageBase64, Base64.DEFAULT)
+                                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                            } catch (e: Exception) {
+                                null
+                            }
+                        }
+                        if (bitmap != null) {
+                            Image(
+                                bitmap = bitmap.asImageBitmap(),
+                                contentDescription = "Anhang",
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 200.dp)
+                                    .clip(RoundedCornerShape(12.dp)),
+                                contentScale = ContentScale.Crop
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                        } else if (!message.attachedFileName.isNullOrBlank()) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color.White.copy(alpha = 0.15f))
+                                    .padding(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.InsertDriveFile,
+                                    contentDescription = null,
+                                    tint = JarvisCyan,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = message.attachedFileName,
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+                    }
+                    if (message.text.isNotBlank()) {
+                        Text(
+                            text = message.text,
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp
+                        )
+                    }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = timeStr,
@@ -1175,6 +1347,9 @@ private fun JarvisInputBar(
     isThinking: Boolean,
     isListening: Boolean,
     onToggleVoice: () -> Unit,
+    onOpenMegaMenu: () -> Unit = {},
+    attachedFileName: String? = null,
+    onRemoveAttachment: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
@@ -1188,99 +1363,250 @@ private fun JarvisInputBar(
         label = "mic_pulse"
     )
 
-    Surface(
-        color = JarvisNavy.copy(alpha = 0.95f),
-        shape = RoundedCornerShape(24.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, JarvisSurfaceBorder),
-        modifier = modifier.fillMaxWidth()
+    Column(modifier = modifier.fillMaxWidth()) {
+        // Attachment Preview Chip if file/image attached
+        if (!attachedFileName.isNullOrBlank()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .padding(bottom = 6.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(JarvisNavy)
+                    .border(1.dp, JarvisCyan.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.InsertDriveFile,
+                    contentDescription = null,
+                    tint = JarvisCyan,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = attachedFileName,
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Entfernen",
+                    tint = Color.White.copy(alpha = 0.7f),
+                    modifier = Modifier
+                        .size(16.dp)
+                        .clickable { onRemoveAttachment() }
+                )
+            }
+        }
+
+        Surface(
+            color = JarvisNavy.copy(alpha = 0.95f),
+            shape = RoundedCornerShape(24.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, JarvisSurfaceBorder),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // ChatGPT Style "+" Mega Menu Button
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(JarvisCyan.copy(alpha = 0.18f))
+                        .border(1.dp, JarvisCyan.copy(alpha = 0.5f), CircleShape)
+                        .clickable { onOpenMegaMenu() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Mega Menü (+)",
+                        tint = JarvisCyanLight,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                // Voice Input Button
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (isListening) Color(0xFFFF5252).copy(alpha = 0.25f)
+                            else JarvisCyan.copy(alpha = 0.12f)
+                        )
+                        .clickable { onToggleVoice() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Mic,
+                        contentDescription = "Spracheingabe",
+                        tint = if (isListening) Color(0xFFFF5252) else JarvisCyan,
+                        modifier = Modifier
+                            .size(20.dp)
+                            .then(if (isListening) Modifier.size((20 * micPulse).dp) else Modifier)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                // Text Input Field
+                OutlinedTextField(
+                    value = inputText,
+                    onValueChange = onInputChanged,
+                    placeholder = {
+                        Text(
+                            text = if (isListening) "Höre zu..." else "Befehl / Frage eingeben...",
+                            color = Color.White.copy(alpha = 0.4f),
+                            fontSize = 13.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(vertical = 2.dp),
+                    maxLines = 4,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = Color.Transparent,
+                        unfocusedBorderColor = Color.Transparent,
+                        cursorColor = JarvisCyan,
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent
+                    )
+                )
+
+                Spacer(modifier = Modifier.width(4.dp))
+
+                // Send Button
+                val canSend = (inputText.isNotBlank() || attachedFileName != null) && !isThinking
+                IconButton(
+                    onClick = onSend,
+                    enabled = canSend,
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (canSend) JarvisCyan
+                            else Color.White.copy(alpha = 0.08f)
+                        )
+                ) {
+                    if (isThinking) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = JarvisCyan,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "Senden",
+                            tint = if (canSend) JarvisNavy else Color.White.copy(alpha = 0.3f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------
+// CHATGPT STYLE MEGA MENU SHEET CONTENT
+// ---------------------------------------------------------
+@Composable
+private fun JarvisMegaMenuContent(
+    isThinkingEnabled: Boolean,
+    onOptionSelected: (String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(18.dp)
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 6.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
         ) {
-            // Voice Input Button
             Box(
                 modifier = Modifier
-                    .size(42.dp)
+                    .size(24.dp)
                     .clip(CircleShape)
-                    .background(
-                        if (isListening) Color(0xFFFF5252).copy(alpha = 0.25f)
-                        else JarvisCyan.copy(alpha = 0.12f)
-                    )
-                    .clickable { onToggleVoice() },
+                    .background(JarvisCyan.copy(alpha = 0.2f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = if (isListening) Icons.Default.Mic else Icons.Default.Mic,
-                    contentDescription = "Spracheingabe",
-                    tint = if (isListening) Color(0xFFFF5252) else JarvisCyan,
-                    modifier = Modifier
-                        .size(22.dp)
-                        .then(if (isListening) Modifier.size((22 * micPulse).dp) else Modifier)
+                    imageVector = Icons.Default.Add,
+                    contentDescription = null,
+                    tint = JarvisCyan,
+                    modifier = Modifier.size(16.dp)
                 )
             }
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = "JARVIS INTERFACE & MULTIMODAL MENU",
+                color = JarvisCyan,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                letterSpacing = 1.sp
+            )
+        }
 
-            Spacer(modifier = Modifier.width(6.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-            // Text Input Field
-            OutlinedTextField(
-                value = inputText,
-                onValueChange = onInputChanged,
-                placeholder = {
+        val options = listOf(
+            Triple("camera", "📷 Foto aufnehmen & analysieren", "Öffnet die Kamera für Live-Bildanalyse"),
+            Triple("gallery", "🖼️ Bild aus Galerie auswählen", "Lade ein Foto oder Bild aus der Galerie hoch"),
+            Triple("file", "📁 Datei / PDF anhängen", "Füge ein Dokument oder Textdatei zur Analyse hinzu"),
+            Triple("voice", "🎙️ Sprachchat + Kamera-Modus", "Interaktiver Jarvis-Sprachdialog mit Live-Video"),
+            Triple("think", "💡 Deep Think (Modell-Gedanken)", if (isThinkingEnabled) "Aktiviert (Gedankenschritte sichtbar)" else "Inaktiv"),
+            Triple("search", "🌐 Internet-Suche", "Startet eine Echtzeit-Websuche mit Gemini"),
+            Triple("agenda", "📅 Kalender & Termine", "Tagesübersicht und geplante Termine aufrufen")
+        )
+
+        options.forEach { (id, title, desc) ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(JarvisDarkBg)
+                    .border(1.dp, JarvisSurfaceBorder, RoundedCornerShape(14.dp))
+                    .clickable { onOptionSelected(id) }
+                    .padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = if (isListening) "Höre zu..." else "Befehl an J.A.R.V.I.S. eingeben...",
-                        color = Color.White.copy(alpha = 0.4f),
-                        fontSize = 13.sp,
+                        text = title,
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace
                     )
-                },
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(vertical = 2.dp),
-                maxLines = 4,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    focusedBorderColor = Color.Transparent,
-                    unfocusedBorderColor = Color.Transparent,
-                    cursorColor = JarvisCyan,
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent
-                )
-            )
-
-            Spacer(modifier = Modifier.width(4.dp))
-
-            // Send Button
-            IconButton(
-                onClick = onSend,
-                enabled = inputText.isNotBlank() && !isThinking,
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (inputText.isNotBlank() && !isThinking) JarvisCyan
-                        else Color.White.copy(alpha = 0.08f)
-                    )
-            ) {
-                if (isThinking) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        color = JarvisCyan,
-                        strokeWidth = 2.dp
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Senden",
-                        tint = if (inputText.isNotBlank()) JarvisNavy else Color.White.copy(alpha = 0.3f),
-                        modifier = Modifier.size(18.dp)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = desc,
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace
                     )
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
     }
 }
 

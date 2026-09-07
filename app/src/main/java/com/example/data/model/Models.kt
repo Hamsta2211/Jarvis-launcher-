@@ -52,7 +52,10 @@ data class ChatMessage(
     val actionPayload: String? = null,
     val metadata: Map<String, String> = emptyMap(),
     val thoughtText: String? = null,
-    val isStreaming: Boolean = false
+    val isStreaming: Boolean = false,
+    val attachedImageBase64: String? = null,
+    val attachedFileName: String? = null,
+    val attachedMimeType: String? = null
 )
 
 data class ChatSession(

@@ -355,7 +355,7 @@ fun LauncherMainScreen(
                     isSpeaking = isSpeaking,
                     isVoiceOutputEnabled = isVoiceOutputEnabled,
                     isVoiceChatMode = isVoiceChatMode,
-                    onSendMessage = { text -> viewModel.sendUserMessage(text) },
+                    onSendMessage = { text, img, name, mime -> viewModel.sendUserMessage(text, img, name, mime) },
                     onStartVoice = { viewModel.startVoiceRecognition() },
                     onStopVoice = { viewModel.stopVoiceRecognition() },
                     onToggleThinking = { viewModel.toggleThinkingEnabled() },

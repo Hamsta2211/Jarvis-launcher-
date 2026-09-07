@@ -49,6 +49,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -78,19 +79,30 @@ fun WeekdayHeader(
     currentDate: Date,
     modifier: Modifier = Modifier
 ) {
-    val calendar = Calendar.getInstance().apply { time = currentDate }
-    val currentDayOfWeek = calendar.get(Calendar.DAY_OF_WEEK)
-
-    // German standard day abbreviations Monday through Sunday (Uniform 3-char format)
-    val days = listOf(
-        Pair(Calendar.MONDAY, "Mo."),
-        Pair(Calendar.TUESDAY, "Di."),
-        Pair(Calendar.WEDNESDAY, "Mi."),
-        Pair(Calendar.THURSDAY, "Do."),
-        Pair(Calendar.FRIDAY, "Fr."),
-        Pair(Calendar.SATURDAY, "Sa."),
-        Pair(Calendar.SUNDAY, "So.")
+    val dayLabels = mapOf(
+        Calendar.MONDAY to "Mo.",
+        Calendar.TUESDAY to "Di.",
+        Calendar.WEDNESDAY to "Mi.",
+        Calendar.THURSDAY to "Do.",
+        Calendar.FRIDAY to "Fr.",
+        Calendar.SATURDAY to "Sa.",
+        Calendar.SUNDAY to "So."
     )
+
+    // Build 7 days window such that TODAY is centered at index 3 (0..6)
+    val orderedDays = remember(currentDate) {
+        val list = mutableListOf<Pair<Int, String>>()
+        for (offset in -3..3) {
+            val cal = Calendar.getInstance().apply {
+                time = currentDate
+                add(Calendar.DAY_OF_YEAR, offset)
+            }
+            val dow = cal.get(Calendar.DAY_OF_WEEK)
+            val label = dayLabels[dow] ?: "Tag"
+            list.add(Pair(dow, label))
+        }
+        list
+    }
 
     Column(
         modifier = modifier
@@ -134,8 +146,9 @@ fun WeekdayHeader(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            days.forEach { (calDay, label) ->
-                val isToday = calDay == currentDayOfWeek
+            orderedDays.forEachIndexed { index, dayPair ->
+                val label = dayPair.second
+                val isToday = index == 3 // Center element is strictly Today
                 Box(
                     modifier = Modifier
                         .weight(1f),

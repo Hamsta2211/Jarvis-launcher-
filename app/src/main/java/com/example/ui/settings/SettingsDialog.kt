@@ -600,7 +600,7 @@ fun SettingsDialog(
                 OutlinedTextField(
                     value = primaryKey,
                     onValueChange = { primaryKey = it },
-                    placeholder = { Text("AIzaSy...", color = Color.White.copy(alpha = 0.4f)) },
+                    placeholder = { Text("API-Key eingeben...", color = Color.White.copy(alpha = 0.4f)) },
                     modifier = Modifier.fillMaxWidth(),
                     leadingIcon = { Icon(Icons.Default.Key, contentDescription = null, tint = JarvisCyan) },
                     colors = OutlinedTextFieldDefaults.colors(

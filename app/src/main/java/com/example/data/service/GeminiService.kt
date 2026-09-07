@@ -31,18 +31,15 @@ class GeminiService(private val settingsManager: SettingsManager) {
         .writeTimeout(25, TimeUnit.SECONDS)
         .build()
 
-    private val candidateModels = listOf(
-        "gemini-3.8-flash",
-        "gemini-2.5-flash",
-        "gemini-2.0-flash",
-        "gemini-2.5-pro"
-    )
+    private val PRIMARY_MODEL = "gemini-2.5-flash"
 
     suspend fun streamChatWithJarvis(
         userMessage: String,
         conversationHistory: List<Pair<String, String>>,
         availableAppNames: List<String>,
         isThinkingEnabled: Boolean,
+        attachedImageBase64: String? = null,
+        attachedMimeType: String? = null,
         onThoughtChunk: (accumulatedThought: String) -> Unit,
         onTextChunk: (accumulatedText: String) -> Unit
     ): Result<GeminiJarvisResult> = withContext(Dispatchers.IO) {
@@ -60,43 +57,37 @@ class GeminiService(private val settingsManager: SettingsManager) {
             val cleanKey = key.trim()
             if (cleanKey.isBlank()) continue
 
-            var keySucceeded = false
-            for (model in candidateModels) {
-                try {
-                    val result = callGeminiApiStream(
-                        apiKey = cleanKey,
-                        modelName = model,
-                        userMessage = userMessage,
-                        conversationHistory = conversationHistory,
-                        availableAppNames = availableAppNames,
-                        isThinkingEnabled = isThinkingEnabled,
-                        onThoughtChunk = onThoughtChunk,
-                        onTextChunk = onTextChunk
+            try {
+                val result = callGeminiApiStream(
+                    apiKey = cleanKey,
+                    modelName = PRIMARY_MODEL,
+                    userMessage = userMessage,
+                    conversationHistory = conversationHistory,
+                    availableAppNames = availableAppNames,
+                    isThinkingEnabled = isThinkingEnabled,
+                    attachedImageBase64 = attachedImageBase64,
+                    attachedMimeType = attachedMimeType,
+                    onThoughtChunk = onThoughtChunk,
+                    onTextChunk = onTextChunk
+                )
+                return@withContext Result.success(
+                    GeminiJarvisResult(
+                        replyText = result.first,
+                        keyUsedIndex = originalIndex,
+                        parsedActions = result.second,
+                        thoughtText = result.third
                     )
-                    keySucceeded = true
-                    return@withContext Result.success(
-                        GeminiJarvisResult(
-                            replyText = result.first,
-                            keyUsedIndex = originalIndex,
-                            parsedActions = result.second,
-                            thoughtText = result.third
-                        )
-                    )
-                } catch (e: Exception) {
-                    lastError = e
-                    Log.w("GeminiService", "Key #$originalIndex with model $model failed: ${e.message}")
-                }
-            }
-
-            // If all models failed with this key, mark key as failed for today so next requests start with the fallback
-            if (!keySucceeded) {
-                Log.w("GeminiService", "Marking Key #$originalIndex as failed for today. Switching to next key.")
+                )
+            } catch (e: Exception) {
+                lastError = e
+                Log.w("GeminiService", "Key #$originalIndex failed with model $PRIMARY_MODEL: ${e.message}")
+                Log.w("GeminiService", "Marking Key #$originalIndex as failed for today. Switching to next API Key.")
                 settingsManager.markGeminiKeyFailedForToday(originalIndex)
             }
         }
 
         Result.failure(
-            lastError ?: Exception("Alle Gemini Modelle und API Keys sind fehlgeschlagen oder das Kontingent ist erschöpft.")
+            lastError ?: Exception("Alle hinterlegten API Keys sind fehlgeschlagen oder ihr Kontingent ist erschöpft.")
         )
     }
 
@@ -107,6 +98,8 @@ class GeminiService(private val settingsManager: SettingsManager) {
         conversationHistory: List<Pair<String, String>>,
         availableAppNames: List<String>,
         isThinkingEnabled: Boolean,
+        attachedImageBase64: String? = null,
+        attachedMimeType: String? = null,
         onThoughtChunk: (String) -> Unit,
         onTextChunk: (String) -> Unit
     ): Triple<String, List<JarvisParsedAction>, String?> {
@@ -150,9 +143,21 @@ class GeminiService(private val settingsManager: SettingsManager) {
             contentsArray.put(contentObj)
         }
 
-        // Current message
-        val currentPart = JSONObject().put("text", userMessage)
-        val currentContent = JSONObject().put("role", "user").put("parts", JSONArray().put(currentPart))
+        // Current message parts (text + optional image attachment inlineData)
+        val currentParts = JSONArray()
+        val promptText = if (userMessage.isNotBlank()) userMessage else "Bitte analysiere das angehängte Bild bzw. Dokument, Sir."
+        currentParts.put(JSONObject().put("text", promptText))
+
+        if (!attachedImageBase64.isNullOrBlank()) {
+            val mime = if (!attachedMimeType.isNullOrBlank()) attachedMimeType else "image/jpeg"
+            val inlineDataObj = JSONObject().apply {
+                put("mimeType", mime)
+                put("data", attachedImageBase64)
+            }
+            currentParts.put(JSONObject().put("inlineData", inlineDataObj))
+        }
+
+        val currentContent = JSONObject().put("role", "user").put("parts", currentParts)
         contentsArray.put(currentContent)
 
         val requestJson = JSONObject().apply {
@@ -180,10 +185,17 @@ class GeminiService(private val settingsManager: SettingsManager) {
 
         val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:streamGenerateContent?key=$apiKey&alt=sse"
 
-        val request = Request.Builder()
+        val reqBuilder = Request.Builder()
             .url(url)
+            .header("x-goog-api-key", apiKey)
             .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
-            .build()
+
+        if (apiKey.startsWith("ya29.", ignoreCase = true) || apiKey.lowercase().startsWith("bearer ")) {
+            val token = apiKey.removePrefix("bearer ").removePrefix("Bearer ")
+            reqBuilder.header("Authorization", "Bearer $token")
+        }
+
+        val request = reqBuilder.build()
 
         val response = client.newCall(request).execute()
         if (!response.isSuccessful) {
