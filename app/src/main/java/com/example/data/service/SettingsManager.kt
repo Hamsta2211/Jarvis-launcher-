@@ -1,5 +1,6 @@
 package com.example.data.service
 
+import java.io.File
 import android.content.Context
 import android.content.SharedPreferences
 import com.example.BuildConfig
@@ -16,7 +17,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class SettingsManager(context: Context) {
+class SettingsManager(private val context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("jarvis_launcher_prefs", Context.MODE_PRIVATE)
 
@@ -316,7 +317,8 @@ class SettingsManager(context: Context) {
     }
 
     fun getChatSessions(): List<ChatSession> {
-        val jsonStr = prefs.getString(KEY_CHAT_SESSIONS, "[]") ?: "[]"
+        val file = java.io.File(context.filesDir, "chat_sessions.json")
+        val jsonStr = if (file.exists()) file.readText() else prefs.getString(KEY_CHAT_SESSIONS, "[]") ?: "[]"
         return try {
             val array = JSONArray(jsonStr)
             val list = mutableListOf<ChatSession>()
@@ -330,6 +332,12 @@ class SettingsManager(context: Context) {
                 val messages = mutableListOf<ChatMessage>()
                 for (j in 0 until msgArr.length()) {
                     val mObj = msgArr.getJSONObject(j)
+                    val framesArr = mObj.optJSONArray("attachedVideoFramesBase64")
+                    val framesList = if (framesArr != null) {
+                        val l = mutableListOf<String>()
+                        for(k in 0 until framesArr.length()) l.add(framesArr.getString(k))
+                        l
+                    } else null
                     messages.add(
                         ChatMessage(
                             id = mObj.optString("id", java.util.UUID.randomUUID().toString()),
@@ -338,7 +346,11 @@ class SettingsManager(context: Context) {
                             timestamp = mObj.optLong("timestamp", System.currentTimeMillis()),
                             thoughtText = if (mObj.has("thoughtText")) mObj.optString("thoughtText").ifBlank { null } else null,
                             actionType = ActionType.valueOf(mObj.optString("actionType", "NONE")),
-                            actionPayload = if (mObj.has("actionPayload")) mObj.optString("actionPayload") else null
+                            actionPayload = if (mObj.has("actionPayload")) mObj.optString("actionPayload") else null,
+                            attachedImageBase64 = if (mObj.has("attachedImageBase64")) mObj.optString("attachedImageBase64") else null,
+                            attachedFileName = if (mObj.has("attachedFileName")) mObj.optString("attachedFileName") else null,
+                            attachedMimeType = if (mObj.has("attachedMimeType")) mObj.optString("attachedMimeType") else null,
+                            attachedVideoFramesBase64 = framesList
                         )
                     )
                 }
@@ -376,6 +388,14 @@ class SettingsManager(context: Context) {
                         m.thoughtText?.let { put("thoughtText", it) }
                         put("actionType", m.actionType.name)
                         m.actionPayload?.let { put("actionPayload", it) }
+                        m.attachedImageBase64?.let { put("attachedImageBase64", it) }
+                        m.attachedFileName?.let { put("attachedFileName", it) }
+                        m.attachedMimeType?.let { put("attachedMimeType", it) }
+                        m.attachedVideoFramesBase64?.let {
+                            val fArr = JSONArray()
+                            it.forEach { f -> fArr.put(f) }
+                            put("attachedVideoFramesBase64", fArr)
+                        }
                     }
                     mArr.put(mObj)
                 }
@@ -383,7 +403,7 @@ class SettingsManager(context: Context) {
             }
             array.put(sObj)
         }
-        prefs.edit().putString(KEY_CHAT_SESSIONS, array.toString()).apply()
+        java.io.File(context.filesDir, "chat_sessions.json").writeText(array.toString())
     }
 
     private fun serializeAppItem(app: AppItem): JSONObject {

@@ -1,0 +1,3 @@
+sed -i 's/attachedImageBase64: String? = null,/attachedImageBase64: String? = null,\n        attachedVideoFramesBase64: List<String>? = null,/g' app/src/main/java/com/example/ui/MainViewModel.kt
+sed -i 's/attachedImageBase64 = attachedImageBase64,/attachedImageBase64 = attachedImageBase64,\n            attachedVideoFramesBase64 = attachedVideoFramesBase64,/g' app/src/main/java/com/example/ui/MainViewModel.kt
+sed -i 's/attachedImageBase64 = attachedImageBase64,/attachedImageBase64 = attachedImageBase64,\n                    attachedVideoFramesBase64 = attachedVideoFramesBase64,/g' app/src/main/java/com/example/ui/MainViewModel.kt

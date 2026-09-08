@@ -274,67 +274,70 @@ fun JarvisScreen(
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet(
-                drawerContainerColor = JarvisNavy,
-                modifier = Modifier.width(300.dp)
+                drawerContainerColor = JarvisDarkBg,
+                modifier = Modifier.width(320.dp)
             ) {
-                Spacer(Modifier.height(32.dp))
+                val navColors = NavigationDrawerItemDefaults.colors(
+                    selectedContainerColor = JarvisCyan.copy(alpha=0.2f),
+                    unselectedContainerColor = Color.Transparent,
+                    selectedIconColor = JarvisCyan,
+                    unselectedIconColor = Color.White.copy(alpha = 0.8f),
+                    selectedTextColor = JarvisCyanLight,
+                    unselectedTextColor = Color.White.copy(alpha = 0.9f)
+                )
                 
-                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    androidx.compose.material3.Button(
-                        onClick = { 
-                            onNewChat()
-                            coroutineScope.launch { drawerState.close() }
-                        },
-                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = JarvisCyanDark),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = "Neuer Chat", tint = JarvisCyanLight)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Neuer Chat", color = JarvisCyanLight)
-                    }
-                    IconButton(
-                        onClick = { 
-                            onOpenSettings()
-                            coroutineScope.launch { drawerState.close() }
+                Row(modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 16.dp, top = 48.dp, bottom = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("J.A.R.V.I.S.", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Default)
+                    Row {
+                        androidx.compose.material3.IconButton(onClick = {}) {
+                            androidx.compose.material3.Icon(Icons.Default.Search, contentDescription = "Suchen", tint = Color.White.copy(alpha=0.7f))
                         }
-                    ) {
-                        Icon(Icons.Default.Settings, contentDescription = "Einstellungen", tint = Color.White.copy(alpha=0.7f))
                     }
                 }
                 
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+                    NavigationDrawerItem(label = { Text("Bilder", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }, selected = false, onClick = {}, icon = { androidx.compose.material3.Icon(Icons.Default.Image, null) }, colors = navColors, modifier = Modifier.padding(vertical = 4.dp))
+                    NavigationDrawerItem(label = { Text("Bibliothek", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }, selected = false, onClick = {}, icon = { androidx.compose.material3.Icon(Icons.Default.History, null) }, colors = navColors, modifier = Modifier.padding(vertical = 4.dp))
+                    NavigationDrawerItem(label = { Text("Einstellungen", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }, selected = false, onClick = { onOpenSettings(); coroutineScope.launch { drawerState.close() } }, icon = { androidx.compose.material3.Icon(Icons.Default.Settings, null) }, colors = navColors, modifier = Modifier.padding(vertical = 4.dp))
+                }
+                
                 Spacer(Modifier.height(16.dp))
-                HorizontalDivider(color = JarvisSurfaceBorder)
-                Spacer(Modifier.height(8.dp))
                 
                 Text(
-                    text = "HISTORIE",
-                    color = Color.White.copy(alpha = 0.5f),
-                    fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+                    text = "Letzte",
+                    color = Color.White.copy(alpha = 0.8f),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)
                 )
                 
                 LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
                     items(chatSessions) { session ->
                         val isSelected = session.id == currentSessionId
                         NavigationDrawerItem(
-                            label = { Text(session.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            label = { Text(session.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp) },
                             selected = isSelected,
                             onClick = {
                                 onSelectChat(session.id)
                                 coroutineScope.launch { drawerState.close() }
                             },
-                            icon = { Icon(Icons.Outlined.ChatBubbleOutline, null) },
-                            colors = NavigationDrawerItemDefaults.colors(
-                                selectedContainerColor = JarvisCyan.copy(alpha=0.2f),
-                                unselectedContainerColor = Color.Transparent,
-                                selectedIconColor = JarvisCyan,
-                                unselectedIconColor = Color.White.copy(alpha = 0.6f),
-                                selectedTextColor = JarvisCyanLight,
-                                unselectedTextColor = Color.White.copy(alpha = 0.8f)
-                            ),
-                            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                            colors = navColors,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
                         )
+                    }
+                }
+                
+                // Floating New Chat Button Area
+                Box(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                    androidx.compose.material3.Button(
+                        onClick = { onNewChat(); coroutineScope.launch { drawerState.close() } },
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = JarvisCyan),
+                        shape = RoundedCornerShape(percent = 50),
+                        modifier = Modifier.height(48.dp)
+                    ) {
+                        androidx.compose.material3.Icon(Icons.Default.Edit, contentDescription = "Neuer Chat", tint = JarvisNavy)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Chat", color = JarvisNavy, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -1174,63 +1177,6 @@ private fun ChatMessageItem(
                         }
                     }
 
-                    // THOUGHT TRACE ACCORDION (IF AVAILABLE OR GENERATING)
-                    if (!message.thoughtText.isNullOrBlank() || (message.isStreaming && isThinkingEnabled)) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(JarvisDarkBg.copy(alpha = 0.6f))
-                                .border(1.dp, JarvisCyan.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
-                                .clickable { isThoughtsExpanded = !isThoughtsExpanded }
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Column {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = Icons.Default.Psychology,
-                                            contentDescription = "Gedankengang",
-                                            tint = JarvisAmber,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = if (message.isStreaming && message.text.isBlank()) "Gedankenanalyse läuft..." else "Gedankengang anzeigen",
-                                            color = JarvisAmber,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontFamily = FontFamily.Monospace
-                                        )
-                                    }
-
-                                    Icon(
-                                        imageVector = if (isThoughtsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                        contentDescription = "Aufklappen",
-                                        tint = JarvisAmber,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-
-                                AnimatedVisibility(visible = isThoughtsExpanded) {
-                                    Column(modifier = Modifier.padding(top = 6.dp)) {
-                                        Text(
-                                            text = message.thoughtText.orEmpty().ifBlank { "Analysiere Systemstatus und Nutzerintention..." },
-                                            color = Color.White.copy(alpha = 0.75f),
-                                            fontSize = 11.sp,
-                                            fontFamily = FontFamily.Monospace,
-                                            lineHeight = 16.sp
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
 
                     Spacer(modifier = Modifier.height(8.dp))
 

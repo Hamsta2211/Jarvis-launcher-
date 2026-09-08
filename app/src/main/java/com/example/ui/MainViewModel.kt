@@ -518,23 +518,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // Speech Command
-    private var latestVoiceCameraFrame: String? = null
+    private val latestVoiceCameraFrames = mutableListOf<String>()
 
     fun setLatestVoiceCameraFrame(base64: String?) {
-        latestVoiceCameraFrame = base64
+        if (base64 != null) {
+            latestVoiceCameraFrames.add(base64)
+        }
     }
+
+    fun clearVoiceCameraFrames() {
+        latestVoiceCameraFrames.clear()
+    }
+
 
     fun startVoiceRecognition() {
         speechHelper?.stopListening()
+        clearVoiceCameraFrames()
         speechHelper = SpeechRecognitionHelper(
             context = getApplication(),
             onResult = { spokenText ->
                 _speechStatusMessage.value = null
                 sendUserMessage(
                     text = spokenText,
-                    attachedImageBase64 = latestVoiceCameraFrame,
-                    attachedFileName = if (latestVoiceCameraFrame != null) "Camera.jpg" else null,
-                    attachedMimeType = if (latestVoiceCameraFrame != null) "image/jpeg" else null
+                    attachedVideoFramesBase64 = latestVoiceCameraFrames.toList(),
+                    attachedFileName = if (latestVoiceCameraFrames.isNotEmpty()) "VoiceVideo.mp4" else null,
+                    attachedMimeType = if (latestVoiceCameraFrames.isNotEmpty()) "video/mp4" else null,
+                    isVoiceCommand = true
                 )
             },
             onError = { error ->
@@ -555,14 +564,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun stopVoiceRecognition() {
         speechHelper?.stopListening()
+        clearVoiceCameraFrames()
     }
 
     // Chat with Jarvis (Streaming + Thinking)
     fun sendUserMessage(
         text: String,
         attachedImageBase64: String? = null,
+        attachedVideoFramesBase64: List<String>? = null,
         attachedFileName: String? = null,
-        attachedMimeType: String? = null
+        attachedMimeType: String? = null,
+        isVoiceCommand: Boolean = false
     ) {
         val trimmed = text.trim()
         if (trimmed.isEmpty() && attachedImageBase64.isNullOrBlank() || _isThinking.value) return
@@ -572,6 +584,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             sender = MessageSender.USER,
             text = displayText,
             attachedImageBase64 = attachedImageBase64,
+                    attachedVideoFramesBase64 = attachedVideoFramesBase64,
             attachedFileName = attachedFileName,
             attachedMimeType = attachedMimeType
         )
@@ -602,7 +615,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 conversationHistory = history,
                 availableAppNames = appNames,
                 isThinkingEnabled = _isThinkingEnabled.value,
+                isLiveVoiceChat = isVoiceCommand,
                 attachedImageBase64 = attachedImageBase64,
+                    attachedVideoFramesBase64 = attachedVideoFramesBase64,
                 attachedMimeType = attachedMimeType,
                 onThoughtChunk = { thoughtSoFar ->
                     _chatMessages.update { list ->
@@ -769,6 +784,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         } else {
             speechHelper?.stopListening()
+        clearVoiceCameraFrames()
             microsoftTtsService.stopSpeaking()
         }
     }
@@ -926,6 +942,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         super.onCleared()
         countDownTimer?.cancel()
         speechHelper?.stopListening()
+        clearVoiceCameraFrames()
         microsoftTtsService.release()
         jarvisNotificationManager.stopAlarm()
         musicPlaybackService.release()

@@ -38,7 +38,9 @@ class GeminiService(private val settingsManager: SettingsManager) {
         conversationHistory: List<Pair<String, String>>,
         availableAppNames: List<String>,
         isThinkingEnabled: Boolean,
+        isLiveVoiceChat: Boolean = false,
         attachedImageBase64: String? = null,
+        attachedVideoFramesBase64: List<String>? = null,
         attachedMimeType: String? = null,
         onThoughtChunk: (accumulatedThought: String) -> Unit,
         onTextChunk: (accumulatedText: String) -> Unit
@@ -66,6 +68,7 @@ class GeminiService(private val settingsManager: SettingsManager) {
                     availableAppNames = availableAppNames,
                     isThinkingEnabled = isThinkingEnabled,
                     attachedImageBase64 = attachedImageBase64,
+                    attachedVideoFramesBase64 = attachedVideoFramesBase64,
                     attachedMimeType = attachedMimeType,
                     onThoughtChunk = onThoughtChunk,
                     onTextChunk = onTextChunk
@@ -98,7 +101,9 @@ class GeminiService(private val settingsManager: SettingsManager) {
         conversationHistory: List<Pair<String, String>>,
         availableAppNames: List<String>,
         isThinkingEnabled: Boolean,
+        isLiveVoiceChat: Boolean = false,
         attachedImageBase64: String? = null,
+        attachedVideoFramesBase64: List<String>? = null,
         attachedMimeType: String? = null,
         onThoughtChunk: (String) -> Unit,
         onTextChunk: (String) -> Unit
@@ -113,6 +118,10 @@ class GeminiService(private val settingsManager: SettingsManager) {
             appendLine("Dein Tonfall: Höflich, intelligent, loyal, britisch-aristokratisch (\"Sehr wohl, Sir.\", \"Ich leite das unverzüglich ein.\", \"Systeme einsatzbereit.\"). Antworte prägnant und elegant auf Deutsch.")
             appendLine("AKTUELLE SYSTEM-ZEIT: $currentDateStr (ISO-Datum: $currentIsoDate, Uhrzeit: $currentTimeStr Uhr)")
             appendLine("Installierte Apps auf diesem Gerät: $appsListHint")
+            if (isLiveVoiceChat) {
+                appendLine("WICHTIG (LIVE-SPRACHCHAT): Du befindest dich gerade in einem interaktiven Live-Sprachchat mit dem Nutzer. Deine Antworten MÜSSEN extrem kurz, gesprächig und auf den Punkt sein. Halte keine langen Vorträge, da deine Antwort per Text-to-Speech vorgelesen wird. Nutze keine komplexen Formatierungen wie Markdown, Listen oder Code-Blöcke, es sei denn es ist zwingend nötig. Verhalte dich wie ein Begleiter in einem natürlichen Gespräch.")
+            }
+
             if (isThinkingEnabled) {
                 appendLine("WICHTIG (Denkprozess): Analysiere kurz Deine kognitiven Schritte und Systemparameter im internen Denkprozess.")
             }
@@ -147,6 +156,17 @@ class GeminiService(private val settingsManager: SettingsManager) {
         val currentParts = JSONArray()
         val promptText = if (userMessage.isNotBlank()) userMessage else "Bitte analysiere das angehängte Bild bzw. Dokument, Sir."
         currentParts.put(JSONObject().put("text", promptText))
+
+        if (!attachedVideoFramesBase64.isNullOrEmpty()) {
+            val mime = if (!attachedMimeType.isNullOrBlank()) attachedMimeType else "image/jpeg"
+            for (frameBase64 in attachedVideoFramesBase64) {
+                val inlineDataObj = JSONObject().apply {
+                    put("mimeType", mime)
+                    put("data", frameBase64)
+                }
+                currentParts.put(JSONObject().put("inlineData", inlineDataObj))
+            }
+        }
 
         if (!attachedImageBase64.isNullOrBlank()) {
             val mime = if (!attachedMimeType.isNullOrBlank()) attachedMimeType else "image/jpeg"
