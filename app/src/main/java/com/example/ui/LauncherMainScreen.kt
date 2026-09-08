@@ -371,7 +371,9 @@ fun LauncherMainScreen(
                     onPauseTimer = { viewModel.pauseTimer() },
                     onResumeTimer = { viewModel.resumeTimer() },
                     onCancelTimer = { viewModel.cancelTimer() },
-                    onCloseJarvis = { viewModel.closeJarvis() }
+                    onCloseJarvis = { viewModel.closeJarvis() },
+                    onOpenSettings = { viewModel.openSettings() },
+                    onUpdateVoiceCameraFrame = { viewModel.setLatestVoiceCameraFrame(it) }
                 )
             }
         }

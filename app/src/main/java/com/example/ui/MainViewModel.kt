@@ -518,13 +518,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // Speech Command
+    private var latestVoiceCameraFrame: String? = null
+
+    fun setLatestVoiceCameraFrame(base64: String?) {
+        latestVoiceCameraFrame = base64
+    }
+
     fun startVoiceRecognition() {
         speechHelper?.stopListening()
         speechHelper = SpeechRecognitionHelper(
             context = getApplication(),
             onResult = { spokenText ->
                 _speechStatusMessage.value = null
-                sendUserMessage(spokenText)
+                sendUserMessage(
+                    text = spokenText,
+                    attachedImageBase64 = latestVoiceCameraFrame,
+                    attachedFileName = if (latestVoiceCameraFrame != null) "Camera.jpg" else null,
+                    attachedMimeType = if (latestVoiceCameraFrame != null) "image/jpeg" else null
+                )
             },
             onError = { error ->
                 _speechStatusMessage.value = error

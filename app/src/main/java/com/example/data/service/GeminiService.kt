@@ -31,7 +31,7 @@ class GeminiService(private val settingsManager: SettingsManager) {
         .writeTimeout(25, TimeUnit.SECONDS)
         .build()
 
-    private val PRIMARY_MODEL = "gemini-2.5-flash"
+    private val PRIMARY_MODEL = "gemini-3.6-flash"
 
     suspend fun streamChatWithJarvis(
         userMessage: String,

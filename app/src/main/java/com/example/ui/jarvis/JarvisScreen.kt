@@ -1,4 +1,18 @@
 package com.example.ui.jarvis
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.NavigationDrawerItemDefaults
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.material3.HorizontalDivider
+import kotlinx.coroutines.launch
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -50,11 +64,13 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
+
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
@@ -172,6 +188,8 @@ fun JarvisScreen(
     onResumeTimer: () -> Unit,
     onCancelTimer: () -> Unit,
     onCloseJarvis: () -> Unit,
+    onOpenSettings: () -> Unit = {},
+    onUpdateVoiceCameraFrame: (String?) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -186,6 +204,9 @@ fun JarvisScreen(
     var renameSessionTarget by remember { mutableStateOf<ChatSession?>(null) }
     var deleteSessionTarget by remember { mutableStateOf<ChatSession?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val coroutineScope = rememberCoroutineScope()
 
     // Camera Capture Launcher
     val cameraCaptureLauncher = rememberLauncherForActivityResult(
@@ -249,11 +270,81 @@ fun JarvisScreen(
         }
     }
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(JarvisDarkBg)
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet(
+                drawerContainerColor = JarvisNavy,
+                modifier = Modifier.width(300.dp)
+            ) {
+                Spacer(Modifier.height(32.dp))
+                
+                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    androidx.compose.material3.Button(
+                        onClick = { 
+                            onNewChat()
+                            coroutineScope.launch { drawerState.close() }
+                        },
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = JarvisCyanDark),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "Neuer Chat", tint = JarvisCyanLight)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Neuer Chat", color = JarvisCyanLight)
+                    }
+                    IconButton(
+                        onClick = { 
+                            onOpenSettings()
+                            coroutineScope.launch { drawerState.close() }
+                        }
+                    ) {
+                        Icon(Icons.Default.Settings, contentDescription = "Einstellungen", tint = Color.White.copy(alpha=0.7f))
+                    }
+                }
+                
+                Spacer(Modifier.height(16.dp))
+                HorizontalDivider(color = JarvisSurfaceBorder)
+                Spacer(Modifier.height(8.dp))
+                
+                Text(
+                    text = "HISTORIE",
+                    color = Color.White.copy(alpha = 0.5f),
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+                )
+                
+                LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                    items(chatSessions) { session ->
+                        val isSelected = session.id == currentSessionId
+                        NavigationDrawerItem(
+                            label = { Text(session.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            selected = isSelected,
+                            onClick = {
+                                onSelectChat(session.id)
+                                coroutineScope.launch { drawerState.close() }
+                            },
+                            icon = { Icon(Icons.Outlined.ChatBubbleOutline, null) },
+                            colors = NavigationDrawerItemDefaults.colors(
+                                selectedContainerColor = JarvisCyan.copy(alpha=0.2f),
+                                unselectedContainerColor = Color.Transparent,
+                                selectedIconColor = JarvisCyan,
+                                unselectedIconColor = Color.White.copy(alpha = 0.6f),
+                                selectedTextColor = JarvisCyanLight,
+                                unselectedTextColor = Color.White.copy(alpha = 0.8f)
+                            ),
+                            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                        )
+                    }
+                }
+            }
+        }
     ) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(JarvisDarkBg)
+        ) {
         // Sci-Fi ambient backdrop grid & center glow
         Canvas(modifier = Modifier.fillMaxSize()) {
             val center = Offset(size.width / 2f, size.height * 0.45f)
@@ -288,7 +379,7 @@ fun JarvisScreen(
                 onOpenVoiceChat = onToggleVoiceChatMode,
                 onOpenAgenda = onOpenAgenda,
                 onNewChat = onNewChat,
-                onOpenHistory = { showSessionsSheet = true },
+                onOpenHistory = { coroutineScope.launch { drawerState.open() } },
                 onClose = onCloseJarvis
             )
 
@@ -579,10 +670,12 @@ fun JarvisScreen(
                 onCloseVoiceChat = onToggleVoiceChatMode,
                 onStartVoice = onStartVoice,
                 onStopVoice = onStopVoice,
-                onStopSpeaking = onStopSpeaking
+                onStopSpeaking = onStopSpeaking,
+                onUpdateCameraFrame = onUpdateVoiceCameraFrame
             )
         }
     }
+    } // End of ModalNavigationDrawer
 }
 
 // ---------------------------------------------------------
