@@ -53,6 +53,7 @@ data class ChatMessage(
     val metadata: Map<String, String> = emptyMap(),
     val thoughtText: String? = null,
     val isStreaming: Boolean = false,
+    val isSending: Boolean = false,
     val attachedImageBase64: String? = null,
     val attachedVideoFramesBase64: List<String>? = null,
     val attachedFileName: String? = null,

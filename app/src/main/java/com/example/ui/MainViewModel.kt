@@ -580,11 +580,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (trimmed.isEmpty() && attachedImageBase64.isNullOrBlank() || _isThinking.value) return
 
         val displayText = if (trimmed.isNotBlank()) trimmed else "📎 [Angehängte Datei: ${attachedFileName ?: "Bild/Datei"}]"
+        val userMsgId = java.util.UUID.randomUUID().toString()
         val userMsg = ChatMessage(
+            id = userMsgId,
             sender = MessageSender.USER,
             text = displayText,
+            isSending = true,
             attachedImageBase64 = attachedImageBase64,
-                    attachedVideoFramesBase64 = attachedVideoFramesBase64,
+            attachedVideoFramesBase64 = attachedVideoFramesBase64,
             attachedFileName = attachedFileName,
             attachedMimeType = attachedMimeType
         )
@@ -617,29 +620,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 isThinkingEnabled = _isThinkingEnabled.value,
                 isLiveVoiceChat = isVoiceCommand,
                 attachedImageBase64 = attachedImageBase64,
-                    attachedVideoFramesBase64 = attachedVideoFramesBase64,
+                attachedVideoFramesBase64 = attachedVideoFramesBase64,
                 attachedMimeType = attachedMimeType,
                 onThoughtChunk = { thoughtSoFar ->
                     _chatMessages.update { list ->
                         list.map { msg ->
-                            if (msg.id == streamingMsgId) {
-                                msg.copy(thoughtText = thoughtSoFar)
-                            } else msg
+                            when (msg.id) {
+                                streamingMsgId -> msg.copy(thoughtText = thoughtSoFar)
+                                userMsgId -> msg.copy(isSending = false)
+                                else -> msg
+                            }
                         }
                     }
                 },
                 onTextChunk = { textSoFar ->
                     _chatMessages.update { list ->
                         list.map { msg ->
-                            if (msg.id == streamingMsgId) {
-                                msg.copy(text = textSoFar)
-                            } else msg
+                            when (msg.id) {
+                                streamingMsgId -> msg.copy(text = textSoFar)
+                                userMsgId -> msg.copy(isSending = false)
+                                else -> msg
+                            }
                         }
                     }
                 }
             )
 
             _isThinking.value = false
+            _chatMessages.update { list ->
+                list.map { msg ->
+                    if (msg.id == userMsgId) msg.copy(isSending = false) else msg
+                }
+            }
 
             if (result.isSuccess) {
                 val jarvisResult = result.getOrNull()!!

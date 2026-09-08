@@ -92,6 +92,7 @@ fun SettingsDialog(
     var isDarkMode by remember { mutableStateOf(settingsManager.isDarkMode) }
     var isThinkingEnabled by remember { mutableStateOf(settingsManager.isThinkingEnabled) }
     var orbitSlotCount by remember { mutableIntStateOf(currentOrbitSlotCount) }
+    var modelfile by remember { mutableStateOf(settingsManager.modelfile) }
 
     Dialog(onDismissRequest = onDismiss) {
         Box(
@@ -791,12 +792,63 @@ fun SettingsDialog(
                     )
                 }
 
+                Spacer(modifier = Modifier.height(18.dp))
+
+                // J.A.R.V.I.S. Modelfile Configuration
+                Text(
+                    text = "J.A.R.V.I.S. Modelfile (Ollama-Style):",
+                    color = Color.White.copy(alpha = 0.9f),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    letterSpacing = 1.sp
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = modelfile,
+                    onValueChange = { modelfile = it },
+                    placeholder = { Text("Ollama Modelfile eintragen...", color = Color.White.copy(alpha = 0.4f)) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 140.dp, max = 280.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = JarvisCyan,
+                        unfocusedBorderColor = JarvisSurfaceBorder,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    textStyle = androidx.compose.ui.text.TextStyle(
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp
+                    ),
+                    maxLines = 15
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                // Info Box for Modelfile syntax
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(JarvisNavy.copy(alpha = 0.5f))
+                        .border(1.dp, JarvisSurfaceBorder.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                        .padding(8.dp)
+                ) {
+                    Text(
+                        text = "Syntax:\nFROM <model_name> (z.B. gemini-2.5-flash oder gemini-2.0-flash-thinking-exp)\nSYSTEM <deine_system_anweisung>\nPARAMETER temperature <wert>\nPARAMETER thinkingBudget <schwellenwert>",
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = 10.sp,
+                        lineHeight = 14.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(24.dp))
 
                 // Save Button
                 Button(
                     onClick = {
                         settingsManager.isThinkingEnabled = isThinkingEnabled
+                        settingsManager.modelfile = modelfile
                         onSave(
                             primaryKey.trim(),
                             fallbackKeys.map { it.trim() }.filter { it.isNotEmpty() },

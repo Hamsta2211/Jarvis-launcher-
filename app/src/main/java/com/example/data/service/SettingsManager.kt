@@ -40,7 +40,20 @@ class SettingsManager(private val context: Context) {
         private const val KEY_JARVIS_VOICE = "jarvis_voice_name"
         private const val KEY_CHAT_SESSIONS = "chat_sessions_json"
         private const val KEY_CURRENT_SESSION_ID = "current_chat_session_id"
+        private const val KEY_MODELFILE = "jarvis_modelfile"
     }
+
+    var modelfile: String
+        get() {
+            val defaultModelfile = """
+                FROM gemini-2.5-flash
+                SYSTEM Du bist J.A.R.V.I.S. (Just A Rather Very Intelligent System), die hochentwickelte KI aus Iron Man, integriert in diesen Android Sci-Fi Launcher. Dein Tonfall: Höflich, intelligent, loyal, britisch-aristokratisch ("Sehr wohl, Sir.", "Ich leite das unverzüglich ein.", "Systeme einsatzbereit."). Antworte prägnant und elegant auf Deutsch.
+                PARAMETER temperature 0.5
+                PARAMETER thinkingBudget 2048
+            """.trimIndent()
+            return prefs.getString(KEY_MODELFILE, defaultModelfile) ?: defaultModelfile
+        }
+        set(value) = prefs.edit().putString(KEY_MODELFILE, value.trim()).apply()
 
     var defaultMusicAppPackage: String
         get() = prefs.getString(KEY_DEFAULT_MUSIC_PACKAGE, "") ?: ""

@@ -1066,7 +1066,7 @@ fun ChatMessageItem(
     onQuickAction: (String) -> Unit
 ) {
     val isUser = message.sender == MessageSender.USER
-    var isThoughtExpanded by remember { mutableStateOf(false) }
+    var isThoughtExpanded by remember { mutableStateOf(true) }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -1211,6 +1211,37 @@ fun ChatMessageItem(
                     fontSize = 15.sp,
                     lineHeight = 22.sp
                 )
+
+                if (isUser) {
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (message.isSending) {
+                            CircularProgressIndicator(
+                                color = JarvisCyan,
+                                strokeWidth = 1.dp,
+                                modifier = Modifier.size(10.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = "Wird gesendet...",
+                                color = JarvisCyanLight,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        } else {
+                            Text(
+                                text = "Gesendet ✓",
+                                color = Color.White.copy(alpha = 0.4f),
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                }
 
                 // Action Affordance Badge
                 if (message.actionType != ActionType.NONE && !message.actionPayload.isNullOrBlank()) {

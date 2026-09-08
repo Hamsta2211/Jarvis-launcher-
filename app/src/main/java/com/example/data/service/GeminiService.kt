@@ -23,6 +23,65 @@ data class GeminiJarvisResult(
     val thoughtText: String? = null
 )
 
+data class ParsedModelfile(
+    val modelName: String = "gemini-2.5-flash",
+    val systemInstruction: String = "",
+    val temperature: Double = 0.5,
+    val thinkingBudget: Int = 2048
+)
+
+fun parseModelfile(rawText: String): ParsedModelfile {
+    var modelName = "gemini-2.5-flash"
+    val systemInstructionLines = mutableListOf<String>()
+    var temperature = 0.5
+    var thinkingBudget = 2048
+
+    val lines = rawText.split("\n")
+    var currentSystemBlock = false
+
+    for (line in lines) {
+        val trimmed = line.trim()
+        if (trimmed.isEmpty() || trimmed.startsWith("#")) continue
+
+        if (trimmed.startsWith("FROM ", ignoreCase = true)) {
+            currentSystemBlock = false
+            modelName = trimmed.substring(5).trim()
+        } else if (trimmed.startsWith("SYSTEM ", ignoreCase = true)) {
+            currentSystemBlock = true
+            systemInstructionLines.add(trimmed.substring(7).trim())
+        } else if (trimmed.startsWith("PARAMETER ", ignoreCase = true)) {
+            currentSystemBlock = false
+            val parts = trimmed.substring(10).trim().split(Regex("\\s+"), 2)
+            if (parts.size == 2) {
+                val paramName = parts[0].trim()
+                val paramVal = parts[1].trim()
+                if (paramName.equals("temperature", ignoreCase = true)) {
+                    temperature = paramVal.toDoubleOrNull() ?: 0.5
+                } else if (paramName.equals("thinkingBudget", ignoreCase = true)) {
+                    thinkingBudget = paramVal.toIntOrNull() ?: 2048
+                }
+            }
+        } else {
+            if (currentSystemBlock) {
+                systemInstructionLines.add(trimmed)
+            }
+        }
+    }
+
+    val systemInstruction = if (systemInstructionLines.isNotEmpty()) {
+        systemInstructionLines.joinToString("\n")
+    } else {
+        "Du bist J.A.R.V.I.S. (Just A Rather Very Intelligent System), die hochentwickelte KI aus Iron Man, integriert in diesen Android Sci-Fi Launcher. Dein Tonfall: Höflich, intelligent, loyal, britisch-aristokratisch (\"Sehr wohl, Sir.\", \"Ich leite das unverzüglich ein.\", \"Systeme einsatzbereit.\"). Antworte prägnant und elegant auf Deutsch."
+    }
+
+    return ParsedModelfile(
+        modelName = modelName,
+        systemInstruction = systemInstruction,
+        temperature = temperature,
+        thinkingBudget = thinkingBudget
+    )
+}
+
 class GeminiService(private val settingsManager: SettingsManager) {
 
     private val client = OkHttpClient.Builder()
@@ -53,6 +112,7 @@ class GeminiService(private val settingsManager: SettingsManager) {
             )
         }
 
+        val parsed = parseModelfile(settingsManager.modelfile)
         var lastError: Exception? = null
 
         for ((originalIndex, key) in orderedKeys) {
@@ -62,11 +122,13 @@ class GeminiService(private val settingsManager: SettingsManager) {
             try {
                 val result = callGeminiApiStream(
                     apiKey = cleanKey,
-                    modelName = PRIMARY_MODEL,
+                    modelName = parsed.modelName,
+                    parsedModelfile = parsed,
                     userMessage = userMessage,
                     conversationHistory = conversationHistory,
                     availableAppNames = availableAppNames,
                     isThinkingEnabled = isThinkingEnabled,
+                    isLiveVoiceChat = isLiveVoiceChat,
                     attachedImageBase64 = attachedImageBase64,
                     attachedVideoFramesBase64 = attachedVideoFramesBase64,
                     attachedMimeType = attachedMimeType,
@@ -83,7 +145,7 @@ class GeminiService(private val settingsManager: SettingsManager) {
                 )
             } catch (e: Exception) {
                 lastError = e
-                Log.w("GeminiService", "Key #$originalIndex failed with model $PRIMARY_MODEL: ${e.message}")
+                Log.w("GeminiService", "Key #$originalIndex failed with model ${parsed.modelName}: ${e.message}")
                 Log.w("GeminiService", "Marking Key #$originalIndex as failed for today. Switching to next API Key.")
                 settingsManager.markGeminiKeyFailedForToday(originalIndex)
             }
@@ -97,6 +159,7 @@ class GeminiService(private val settingsManager: SettingsManager) {
     private fun callGeminiApiStream(
         apiKey: String,
         modelName: String,
+        parsedModelfile: ParsedModelfile,
         userMessage: String,
         conversationHistory: List<Pair<String, String>>,
         availableAppNames: List<String>,
@@ -114,8 +177,7 @@ class GeminiService(private val settingsManager: SettingsManager) {
         val currentTimeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
 
         val systemInstructionText = buildString {
-            appendLine("Du bist J.A.R.V.I.S. (Just A Rather Very Intelligent System), die hochentwickelte KI aus Iron Man, integriert in diesen Android Sci-Fi Launcher.")
-            appendLine("Dein Tonfall: Höflich, intelligent, loyal, britisch-aristokratisch (\"Sehr wohl, Sir.\", \"Ich leite das unverzüglich ein.\", \"Systeme einsatzbereit.\"). Antworte prägnant und elegant auf Deutsch.")
+            appendLine(parsedModelfile.systemInstruction)
             appendLine("AKTUELLE SYSTEM-ZEIT: $currentDateStr (ISO-Datum: $currentIsoDate, Uhrzeit: $currentTimeStr Uhr)")
             appendLine("Installierte Apps auf diesem Gerät: $appsListHint")
             if (isLiveVoiceChat) {
@@ -189,13 +251,13 @@ class GeminiService(private val settingsManager: SettingsManager) {
             put(
                 "generationConfig",
                 JSONObject().apply {
-                    put("temperature", 0.5)
+                    put("temperature", parsedModelfile.temperature)
                     put("maxOutputTokens", 4096)
                     if (isThinkingEnabled) {
                         put(
                             "thinkingConfig",
                             JSONObject().apply {
-                                put("thinkingBudget", 2048)
+                                put("thinkingBudget", parsedModelfile.thinkingBudget)
                             }
                         )
                     }
