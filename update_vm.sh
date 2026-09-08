@@ -1,2 +1,0 @@
-sed -i 's/private var latestVoiceCameraFrame: String? = null/private val latestVoiceCameraFrames = mutableListOf<String>()/g' app/src/main/java/com/example/ui/MainViewModel.kt
-sed -i 's/fun setLatestVoiceCameraFrame(base64: String?) {/fun setLatestVoiceCameraFrame(base64: String?) {\n        if (base64 != null) {\n            latestVoiceCameraFrames.add(base64)\n        }\n    }\n\n    fun clearVoiceCameraFrames() {\n        latestVoiceCameraFrames.clear()\n    }\n\n    \/\/ REMOVE_ME/g' app/src/main/java/com/example/ui/MainViewModel.kt
