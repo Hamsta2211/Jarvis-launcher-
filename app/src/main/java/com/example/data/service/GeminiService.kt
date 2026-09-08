@@ -253,14 +253,14 @@ class GeminiService(private val settingsManager: SettingsManager) {
                 JSONObject().apply {
                     put("temperature", parsedModelfile.temperature)
                     put("maxOutputTokens", 4096)
-                    if (isThinkingEnabled) {
-                        put(
-                            "thinkingConfig",
-                            JSONObject().apply {
-                                put("thinkingBudget", parsedModelfile.thinkingBudget)
-                            }
-                        )
+                    
+                    val budget = if (isThinkingEnabled) parsedModelfile.thinkingBudget else 0
+                    val config = JSONObject().apply {
+                        put("thinkingBudget", budget)
+                        put("thinking_budget", budget)
                     }
+                    put("thinkingConfig", config)
+                    put("thinking_config", config)
                 }
             )
         }
