@@ -254,13 +254,21 @@ class GeminiService(private val settingsManager: SettingsManager) {
                     put("temperature", parsedModelfile.temperature)
                     put("maxOutputTokens", 4096)
                     
-                    val budget = if (isThinkingEnabled) parsedModelfile.thinkingBudget else 0
-                    val config = JSONObject().apply {
-                        put("thinkingBudget", budget)
-                        put("thinking_budget", budget)
+                    val modelLower = modelName.lowercase()
+                    val supportsThinking = modelLower.contains("2.5") || modelLower.contains("thinking") || modelLower.contains("gemini-3") || modelLower.contains("gemini-2")
+                    
+                    if (supportsThinking) {
+                        val budget = if (isThinkingEnabled) parsedModelfile.thinkingBudget else 0
+                        val config = JSONObject().apply {
+                            put("thinkingBudget", budget)
+                        }
+                        put("thinkingConfig", config)
+                    } else if (isThinkingEnabled) {
+                        val config = JSONObject().apply {
+                            put("thinkingBudget", parsedModelfile.thinkingBudget)
+                        }
+                        put("thinkingConfig", config)
                     }
-                    put("thinkingConfig", config)
-                    put("thinking_config", config)
                 }
             )
         }
