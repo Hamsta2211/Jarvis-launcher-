@@ -261,11 +261,15 @@ class GeminiService(private val settingsManager: SettingsManager) {
                         val budget = if (isThinkingEnabled) parsedModelfile.thinkingBudget else 0
                         val config = JSONObject().apply {
                             put("thinkingBudget", budget)
+                            if (isThinkingEnabled) {
+                                put("includeThoughts", true)
+                            }
                         }
                         put("thinkingConfig", config)
                     } else if (isThinkingEnabled) {
                         val config = JSONObject().apply {
                             put("thinkingBudget", parsedModelfile.thinkingBudget)
+                            put("includeThoughts", true)
                         }
                         put("thinkingConfig", config)
                     }
@@ -298,6 +302,7 @@ class GeminiService(private val settingsManager: SettingsManager) {
 
         val fullThought = StringBuilder()
         val fullResponse = StringBuilder()
+        var isCurrentlyThinkingInline = false
 
         while (!source.exhausted()) {
             val line = source.readUtf8Line() ?: break
@@ -326,25 +331,38 @@ class GeminiService(private val settingsManager: SettingsManager) {
                                             onThoughtChunk(fullThought.toString())
                                         }
                                     } else {
-                                        // Check if rawText contains inline <thought>...</thought> tags
-                                        if (rawText.contains("<thought>") || fullThought.isNotEmpty() && !fullThought.contains("</thought>") && rawText.contains("</thought>")) {
-                                            // Extract thinking tag contents
-                                            val thoughtMatch = Regex("""<thought>(.*?)</thought>""", RegexOption.DOT_MATCHES_ALL).find(rawText)
-                                            if (thoughtMatch != null) {
-                                                fullThought.append(thoughtMatch.groupValues[1])
-                                                onThoughtChunk(fullThought.toString())
-                                                val remaining = rawText.replace(thoughtMatch.value, "")
-                                                if (remaining.isNotEmpty()) {
-                                                    fullResponse.append(remaining)
+                                        if (rawText.isNotEmpty()) {
+                                            var textToProcess = rawText
+                                            
+                                            if (textToProcess.contains("<thought>")) {
+                                                isCurrentlyThinkingInline = true
+                                                val beforeThought = textToProcess.substringBefore("<thought>")
+                                                if (beforeThought.isNotEmpty()) {
+                                                    fullResponse.append(beforeThought)
                                                     onTextChunk(fullResponse.toString().replace(Regex("""\[\[ACTION:(\{.*?\})\]\]""", RegexOption.DOT_MATCHES_ALL), "").trimEnd())
                                                 }
-                                            } else {
-                                                fullThought.append(rawText.replace("<thought>", "").replace("</thought>", ""))
-                                                onThoughtChunk(fullThought.toString())
+                                                textToProcess = textToProcess.substringAfter("<thought>")
                                             }
-                                        } else {
-                                            if (rawText.isNotEmpty()) {
-                                                fullResponse.append(rawText)
+                                            
+                                            if (isCurrentlyThinkingInline) {
+                                                if (textToProcess.contains("</thought>")) {
+                                                    isCurrentlyThinkingInline = false
+                                                    val thoughtPart = textToProcess.substringBefore("</thought>")
+                                                    if (thoughtPart.isNotEmpty()) {
+                                                        fullThought.append(thoughtPart)
+                                                        onThoughtChunk(fullThought.toString())
+                                                    }
+                                                    val afterThought = textToProcess.substringAfter("</thought>")
+                                                    if (afterThought.isNotEmpty()) {
+                                                        fullResponse.append(afterThought)
+                                                        onTextChunk(fullResponse.toString().replace(Regex("""\[\[ACTION:(\{.*?\})\]\]""", RegexOption.DOT_MATCHES_ALL), "").trimEnd())
+                                                    }
+                                                } else {
+                                                    fullThought.append(textToProcess)
+                                                    onThoughtChunk(fullThought.toString())
+                                                }
+                                            } else {
+                                                fullResponse.append(textToProcess)
                                                 val currentClean = fullResponse.toString()
                                                     .replace(Regex("""\[\[ACTION:(\{.*?\})\]\]""", RegexOption.DOT_MATCHES_ALL), "")
                                                     .trimEnd()
