@@ -101,8 +101,8 @@ class GeminiService(private val settingsManager: SettingsManager) {
         attachedImageBase64: String? = null,
         attachedVideoFramesBase64: List<String>? = null,
         attachedMimeType: String? = null,
-        onThoughtChunk: (accumulatedThought: String) -> Unit,
-        onTextChunk: (accumulatedText: String) -> Unit
+        onThoughtChunk: (accumulatedThought: String, deltaThought: String) -> Unit,
+        onTextChunk: (accumulatedText: String, deltaText: String) -> Unit
     ): Result<GeminiJarvisResult> = withContext(Dispatchers.IO) {
         val orderedKeys = settingsManager.getOrderedGeminiKeysWithFailover()
 
@@ -168,8 +168,8 @@ class GeminiService(private val settingsManager: SettingsManager) {
         attachedImageBase64: String? = null,
         attachedVideoFramesBase64: List<String>? = null,
         attachedMimeType: String? = null,
-        onThoughtChunk: (String) -> Unit,
-        onTextChunk: (String) -> Unit
+        onThoughtChunk: (accumulatedThought: String, deltaThought: String) -> Unit,
+        onTextChunk: (accumulatedText: String, deltaText: String) -> Unit
     ): Triple<String, List<JarvisParsedAction>, String?> {
         val appsListHint = availableAppNames.take(200).joinToString(", ")
         val currentDateStr = SimpleDateFormat("EEEE, dd. MMMM yyyy", Locale.GERMANY).format(Date())
@@ -323,50 +323,69 @@ class GeminiService(private val settingsManager: SettingsManager) {
                                     val part = parts.getJSONObject(i)
                                     val isThoughtPart = part.optBoolean("thought", false) ||
                                             part.optString("thought").equals("true", ignoreCase = true)
-                                    val rawText = part.optString("text")
+                                    val thoughtStr = when {
+                                        isThoughtPart -> part.optString("text")
+                                        part.has("thought") && !part.optString("thought").equals("false", ignoreCase = true) -> part.optString("thought")
+                                        part.has("thought_text") -> part.optString("thought_text")
+                                        part.has("thoughtText") -> part.optString("thoughtText")
+                                        else -> null
+                                    }
 
-                                    if (isThoughtPart) {
-                                        if (rawText.isNotEmpty()) {
-                                            fullThought.append(rawText)
-                                            onThoughtChunk(fullThought.toString())
-                                        }
+                                    if (!thoughtStr.isNullOrEmpty()) {
+                                        fullThought.append(thoughtStr)
+                                        onThoughtChunk(fullThought.toString(), thoughtStr)
                                     } else {
+                                        val rawText = part.optString("text")
                                         if (rawText.isNotEmpty()) {
                                             var textToProcess = rawText
-                                            
-                                            if (textToProcess.contains("<thought>")) {
+
+                                            val thoughtOpenTag = when {
+                                                textToProcess.contains("<thought>") -> "<thought>"
+                                                textToProcess.contains("<thinking>") -> "<thinking>"
+                                                else -> null
+                                            }
+
+                                            if (thoughtOpenTag != null) {
                                                 isCurrentlyThinkingInline = true
-                                                val beforeThought = textToProcess.substringBefore("<thought>")
+                                                val beforeThought = textToProcess.substringBefore(thoughtOpenTag)
                                                 if (beforeThought.isNotEmpty()) {
                                                     fullResponse.append(beforeThought)
-                                                    onTextChunk(fullResponse.toString().replace(Regex("""\[\[ACTION:(\{.*?\})\]\]""", RegexOption.DOT_MATCHES_ALL), "").trimEnd())
+                                                    val cleanCurrent = fullResponse.toString().replace(Regex("""\[\[ACTION:(\{.*?\})\]\]""", RegexOption.DOT_MATCHES_ALL), "").trimEnd()
+                                                    onTextChunk(cleanCurrent, beforeThought)
                                                 }
-                                                textToProcess = textToProcess.substringAfter("<thought>")
+                                                textToProcess = textToProcess.substringAfter(thoughtOpenTag)
                                             }
-                                            
+
                                             if (isCurrentlyThinkingInline) {
-                                                if (textToProcess.contains("</thought>")) {
+                                                val thoughtCloseTag = when {
+                                                    textToProcess.contains("</thought>") -> "</thought>"
+                                                    textToProcess.contains("</thinking>") -> "</thinking>"
+                                                    else -> null
+                                                }
+
+                                                if (thoughtCloseTag != null) {
                                                     isCurrentlyThinkingInline = false
-                                                    val thoughtPart = textToProcess.substringBefore("</thought>")
+                                                    val thoughtPart = textToProcess.substringBefore(thoughtCloseTag)
                                                     if (thoughtPart.isNotEmpty()) {
                                                         fullThought.append(thoughtPart)
-                                                        onThoughtChunk(fullThought.toString())
+                                                        onThoughtChunk(fullThought.toString(), thoughtPart)
                                                     }
-                                                    val afterThought = textToProcess.substringAfter("</thought>")
+                                                    val afterThought = textToProcess.substringAfter(thoughtCloseTag)
                                                     if (afterThought.isNotEmpty()) {
                                                         fullResponse.append(afterThought)
-                                                        onTextChunk(fullResponse.toString().replace(Regex("""\[\[ACTION:(\{.*?\})\]\]""", RegexOption.DOT_MATCHES_ALL), "").trimEnd())
+                                                        val cleanCurrent = fullResponse.toString().replace(Regex("""\[\[ACTION:(\{.*?\})\]\]""", RegexOption.DOT_MATCHES_ALL), "").trimEnd()
+                                                        onTextChunk(cleanCurrent, afterThought)
                                                     }
                                                 } else {
                                                     fullThought.append(textToProcess)
-                                                    onThoughtChunk(fullThought.toString())
+                                                    onThoughtChunk(fullThought.toString(), textToProcess)
                                                 }
                                             } else {
                                                 fullResponse.append(textToProcess)
                                                 val currentClean = fullResponse.toString()
                                                     .replace(Regex("""\[\[ACTION:(\{.*?\})\]\]""", RegexOption.DOT_MATCHES_ALL), "")
                                                     .trimEnd()
-                                                onTextChunk(currentClean)
+                                                onTextChunk(currentClean, textToProcess)
                                             }
                                         }
                                     }

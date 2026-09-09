@@ -1082,8 +1082,8 @@ fun ChatMessageItem(
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
         )
 
-        // Thought Bubble (Deep Think)
-        if (!isUser && isThinkingEnabled && message.thoughtText != null) {
+        // Thought Bubble (Deep Think) - Only shown when model actually provides reasoning/thought text
+        if (!isUser && isThinkingEnabled && !message.thoughtText.isNullOrBlank()) {
             Surface(
                 color = JarvisSurfaceDark.copy(alpha = 0.6f),
                 shape = RoundedCornerShape(10.dp),
@@ -1126,8 +1126,8 @@ fun ChatMessageItem(
                     if (isThoughtExpanded) {
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            text = if (message.thoughtText.isBlank()) "Systemanalyse & Lagebesprechung..." else message.thoughtText,
-                            color = Color.White.copy(alpha = 0.75f),
+                            text = message.thoughtText,
+                            color = Color.White.copy(alpha = 0.85f),
                             fontSize = 12.sp,
                             fontStyle = FontStyle.Italic,
                             lineHeight = 16.sp

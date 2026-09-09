@@ -579,6 +579,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val trimmed = text.trim()
         if (trimmed.isEmpty() && attachedImageBase64.isNullOrBlank() || _isThinking.value) return
 
+        // Stop any ongoing speech when a new query begins
+        microsoftTtsService.stopSpeaking()
+
         val displayText = if (trimmed.isNotBlank()) trimmed else "📎 [Angehängte Datei: ${attachedFileName ?: "Bild/Datei"}]"
         val userMsgId = java.util.UUID.randomUUID().toString()
         val userMsg = ChatMessage(
@@ -597,7 +600,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             sender = MessageSender.JARVIS,
             text = "",
             isStreaming = true,
-            thoughtText = if (_isThinkingEnabled.value) "" else null
+            thoughtText = null
         )
 
         val updatedWithBoth = _chatMessages.value + userMsg + jarvisStreamingPlaceholder
@@ -613,6 +616,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             val appNames = _installedApps.value.map { it.label }
 
+            val isVoiceActive = _isVoiceChatMode.value || _isVoiceOutputEnabled.value
+            val sentenceBuffer = SentenceStreamingBuffer { sentence ->
+                if (isVoiceActive) {
+                    microsoftTtsService.enqueueSpeech(sentence)
+                }
+            }
+
             val result = geminiService.streamChatWithJarvis(
                 userMessage = trimmed,
                 conversationHistory = history,
@@ -622,18 +632,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 attachedImageBase64 = attachedImageBase64,
                 attachedVideoFramesBase64 = attachedVideoFramesBase64,
                 attachedMimeType = attachedMimeType,
-                onThoughtChunk = { thoughtSoFar ->
-                    _chatMessages.update { list ->
-                        list.map { msg ->
-                            when (msg.id) {
-                                streamingMsgId -> msg.copy(thoughtText = thoughtSoFar)
-                                userMsgId -> msg.copy(isSending = false)
-                                else -> msg
+                onThoughtChunk = { thoughtSoFar, _ ->
+                    val cleanThought = thoughtSoFar.trim()
+                    if (cleanThought.isNotEmpty()) {
+                        _chatMessages.update { list ->
+                            list.map { msg ->
+                                when (msg.id) {
+                                    streamingMsgId -> msg.copy(thoughtText = cleanThought)
+                                    userMsgId -> msg.copy(isSending = false)
+                                    else -> msg
+                                }
                             }
                         }
                     }
                 },
-                onTextChunk = { textSoFar ->
+                onTextChunk = { textSoFar, delta ->
                     _chatMessages.update { list ->
                         list.map { msg ->
                             when (msg.id) {
@@ -642,6 +655,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 else -> msg
                             }
                         }
+                    }
+                    if (isVoiceActive) {
+                        sentenceBuffer.append(delta)
                     }
                 }
             )
@@ -713,23 +729,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     "\n\n" + executedNotesList.joinToString("\n")
                 } else ""
 
-                val finalSpokenText = (if (jarvisResult.replyText.isNotBlank()) jarvisResult.replyText else "")
-                    .replace(Regex("""\[\[ACTION:.*?\]\]""", RegexOption.DOT_MATCHES_ALL), "")
-                    .trim()
-
-                if (_isVoiceChatMode.value || _isVoiceOutputEnabled.value) {
-                    if (finalSpokenText.isNotEmpty()) {
-                        microsoftTtsService.speak(finalSpokenText) {
-                            if (_isVoiceChatMode.value) {
-                                // Continue voice chat loop: listen again
-                                viewModelScope.launch {
-                                    delay(400)
-                                    startVoiceRecognition()
-                                }
+                if (isVoiceActive) {
+                    sentenceBuffer.flush()
+                    microsoftTtsService.finishStreaming {
+                        if (_isVoiceChatMode.value) {
+                            viewModelScope.launch {
+                                delay(400)
+                                startVoiceRecognition()
                             }
                         }
                     }
                 }
+
+                val finalThought = jarvisResult.thoughtText?.trim()?.ifBlank { null }
 
                 _chatMessages.update { list ->
                     list.map { msg ->
@@ -740,12 +752,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 isStreaming = false,
                                 actionType = actionType,
                                 actionPayload = actionPayload,
-                                thoughtText = jarvisResult.thoughtText ?: msg.thoughtText
+                                thoughtText = finalThought ?: msg.thoughtText
                             )
                         } else msg
                     }
                 }
             } else {
+                if (isVoiceActive) {
+                    sentenceBuffer.flush()
+                }
                 val errorMsg = result.exceptionOrNull()?.message ?: "Unbekannter Fehler"
                 val errReply = "Sir, ein Problem ist aufgetreten: $errorMsg. Bitte überprüfen Sie Ihre API-Keys in den Einstellungen."
                 if (_isVoiceChatMode.value || _isVoiceOutputEnabled.value) {
@@ -757,7 +772,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             msg.copy(
                                 text = errReply,
                                 isStreaming = false,
-                                actionType = ActionType.ERROR
+                                actionType = ActionType.ERROR,
+                                thoughtText = null
                             )
                         } else msg
                     }
@@ -958,5 +974,104 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         microsoftTtsService.release()
         jarvisNotificationManager.stopAlarm()
         musicPlaybackService.release()
+    }
+}
+
+/**
+ * Real-time sentence segmenter for streaming text-to-speech.
+ * Buffers incoming stream tokens until a complete, natural speakable sentence
+ * or phrase is formed, avoiding robotic fragments and reducing latency.
+ */
+class SentenceStreamingBuffer(
+    private val onSentenceReady: (String) -> Unit
+) {
+    private val buffer = StringBuilder()
+    private val sentenceEndRegex = Regex("""([.!?])(\s+|\n|$)""")
+
+    fun append(delta: String) {
+        buffer.append(delta)
+        process(isFinal = false)
+    }
+
+    fun flush() {
+        process(isFinal = true)
+    }
+
+    private fun process(isFinal: Boolean) {
+        while (true) {
+            val text = buffer.toString()
+
+            // Strip action tags from speech buffer so commands aren't read aloud
+            val cleanedText = text.replace(Regex("""\[\[ACTION:.*?\]\]""", RegexOption.DOT_MATCHES_ALL), "")
+            if (cleanedText != text) {
+                buffer.clear()
+                buffer.append(cleanedText)
+            }
+
+            val buf = buffer.toString()
+            val match = sentenceEndRegex.find(buf)
+            if (match != null) {
+                val endIndex = match.range.last + 1
+                val sentence = buf.substring(0, endIndex).trim()
+
+                if (isAbbreviation(sentence)) {
+                    if (!isFinal) break
+                }
+
+                buffer.delete(0, endIndex)
+                val cleanSentence = cleanForSpeech(sentence)
+                if (cleanSentence.isNotBlank()) {
+                    onSentenceReady(cleanSentence)
+                }
+            } else {
+                // Natural breathing pauses for longer sentences with commas or newlines
+                val commaIndex = buf.indexOf(", ")
+                val semicolonIndex = buf.indexOf("; ")
+                val newlineIndex = buf.indexOf("\n")
+                val splitIndex = when {
+                    newlineIndex in 1..200 -> newlineIndex
+                    buf.length > 90 && commaIndex in 25..100 -> commaIndex
+                    buf.length > 90 && semicolonIndex in 25..100 -> semicolonIndex
+                    else -> -1
+                }
+
+                if (splitIndex > 0) {
+                    val clause = buf.substring(0, splitIndex + 1).trim()
+                    buffer.delete(0, splitIndex + 2)
+                    val cleanClause = cleanForSpeech(clause)
+                    if (cleanClause.isNotBlank()) {
+                        onSentenceReady(cleanClause)
+                    }
+                } else {
+                    break
+                }
+            }
+        }
+
+        if (isFinal) {
+            val remaining = buffer.toString()
+                .replace(Regex("""\[\[ACTION:.*?\]\]""", RegexOption.DOT_MATCHES_ALL), "")
+                .trim()
+            buffer.clear()
+            val cleanRemaining = cleanForSpeech(remaining)
+            if (cleanRemaining.isNotBlank()) {
+                onSentenceReady(cleanRemaining)
+            }
+        }
+    }
+
+    private fun cleanForSpeech(input: String): String {
+        return input
+            .replace(Regex("""[#*_`~]"""), "")
+            .replace(Regex("""https?://\S+"""), "Link")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+    }
+
+    private fun isAbbreviation(sentence: String): Boolean {
+        val s = sentence.trim()
+        return s.endsWith("z.B.") || s.endsWith("bzw.") || s.endsWith("d.h.") ||
+                s.endsWith("Dr.") || s.endsWith("Prof.") || s.endsWith("Mr.") || s.endsWith("Mrs.") ||
+                s.matches(Regex(""".*\d+\.$"""))
     }
 }

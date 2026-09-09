@@ -32,12 +32,23 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+
 /**
  * Service delivering Microsoft Neural TTS with the famous "de-DE-ConradNeural" voice
  * (Edge-TTS protocol, German Conrad - iconic Jarvis assistant voice) with multiple
  * fallbacks ensuring high-quality, non-robotic sci-fi assistant speech.
+ * Includes a thread-safe streaming sentence queue for real-time parallel speech.
  */
 class MicrosoftTtsService(private val context: Context) {
+
+    private sealed class SpeechItem {
+        data class Sentence(val text: String) : SpeechItem()
+        data class Finish(val onAllCompleted: (() -> Unit)?) : SpeechItem()
+    }
 
     private val scope = CoroutineScope(Dispatchers.Main)
     private var mediaPlayer: MediaPlayer? = null
@@ -46,6 +57,9 @@ class MicrosoftTtsService(private val context: Context) {
 
     private val _isSpeaking = MutableStateFlow(false)
     val isSpeaking: StateFlow<Boolean> = _isSpeaking.asStateFlow()
+
+    private var speechChannel = Channel<SpeechItem>(Channel.UNLIMITED)
+    private var workerJob: Job? = null
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -89,36 +103,69 @@ class MicrosoftTtsService(private val context: Context) {
         }
     }
 
+    private fun ensureWorkerRunning() {
+        if (workerJob?.isActive == true) return
+        workerJob = scope.launch(Dispatchers.IO) {
+            for (item in speechChannel) {
+                when (item) {
+                    is SpeechItem.Sentence -> {
+                        val cleanText = cleanTextForSpeech(item.text)
+                        if (cleanText.isNotBlank()) {
+                            _isSpeaking.value = true
+                            speakSentenceSuspending(cleanText)
+                        }
+                    }
+                    is SpeechItem.Finish -> {
+                        _isSpeaking.value = false
+                        withContext(Dispatchers.Main) {
+                            item.onAllCompleted?.invoke()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Enqueue a single sentence or text section for immediate or sequential streaming playback.
+     */
+    fun enqueueSpeech(sentence: String) {
+        val clean = cleanTextForSpeech(sentence)
+        if (clean.isBlank()) return
+        ensureWorkerRunning()
+        speechChannel.trySend(SpeechItem.Sentence(clean))
+    }
+
+    /**
+     * Signal that all text chunks have arrived. When all queued sentences are done playing,
+     * onAllCompleted is invoked.
+     */
+    fun finishStreaming(onAllCompleted: (() -> Unit)? = null) {
+        ensureWorkerRunning()
+        speechChannel.trySend(SpeechItem.Finish(onAllCompleted))
+    }
+
+    /**
+     * Traditional one-shot speak call. Clears any ongoing speech, enqueues the text, and finishes.
+     */
     fun speak(text: String, onFinished: (() -> Unit)? = null) {
+        stopSpeaking()
         val cleanText = cleanTextForSpeech(text)
         if (cleanText.isBlank()) {
             onFinished?.invoke()
             return
         }
-
-        stopSpeaking()
-        _isSpeaking.value = true
-
-        scope.launch {
-            // 1. Try Microsoft Conrad Neural Voice via Edge-TTS WebSocket
-            var success = synthesizeWithMicrosoftConrad(cleanText, onFinished)
-
-            // 2. If WebSocket failed, try HTTP Neural Speech Endpoint
-            if (!success) {
-                Log.w("MicrosoftTtsService", "Edge-TTS WS failed, trying HTTP Neural TTS...")
-                success = synthesizeWithHttpNeural(cleanText, onFinished)
-            }
-
-            // 3. Fallback to customized Android Deep Male TTS
-            if (!success) {
-                Log.w("MicrosoftTtsService", "Neural TTS failed, using Jarvis male Android TTS profile")
-                speakWithAndroidFallback(cleanText, onFinished)
-            }
-        }
+        enqueueSpeech(cleanText)
+        finishStreaming(onFinished)
     }
 
     fun stopSpeaking() {
         try {
+            workerJob?.cancel()
+            workerJob = null
+            speechChannel.cancel()
+            speechChannel = Channel(Channel.UNLIMITED)
+
             if (mediaPlayer != null) {
                 if (mediaPlayer?.isPlaying == true) {
                     mediaPlayer?.stop()
@@ -136,10 +183,28 @@ class MicrosoftTtsService(private val context: Context) {
         }
     }
 
-    private suspend fun synthesizeWithMicrosoftConrad(
-        text: String,
-        onFinished: (() -> Unit)?
-    ): Boolean = withContext(Dispatchers.IO) {
+    private suspend fun speakSentenceSuspending(text: String) {
+        // 1. Try Microsoft Conrad Neural Voice via Edge-TTS WebSocket
+        var audioBytes = synthesizeWithMicrosoftConradBytes(text)
+
+        // 2. If WebSocket failed, try HTTP Neural Speech Endpoint
+        if (audioBytes == null || audioBytes.isEmpty()) {
+            Log.w("MicrosoftTtsService", "Edge-TTS WS failed, trying HTTP Neural TTS...")
+            audioBytes = synthesizeWithHttpNeuralBytes(text)
+        }
+
+        if (audioBytes != null && audioBytes.isNotEmpty()) {
+            playMp3BytesSuspending(audioBytes)
+        } else {
+            // 3. Fallback to customized Android Deep Male TTS
+            Log.w("MicrosoftTtsService", "Neural TTS failed, using Jarvis male Android TTS profile")
+            speakWithAndroidFallbackSuspending(text)
+        }
+    }
+
+    private suspend fun synthesizeWithMicrosoftConradBytes(
+        text: String
+    ): ByteArray? = withContext(Dispatchers.IO) {
         val connectionId = UUID.randomUUID().toString().replace("-", "")
         val requestId = UUID.randomUUID().toString().replace("-", "")
         val audioStream = ByteArrayOutputStream()
@@ -218,31 +283,26 @@ class MicrosoftTtsService(private val context: Context) {
 
             val startTime = System.currentTimeMillis()
             while (!isFinishedSignal.get() && System.currentTimeMillis() - startTime < 8000) {
-                Thread.sleep(40)
+                Thread.sleep(30)
             }
 
             currentWebSocket.cancel()
 
             val audioBytes = audioStream.toByteArray()
             if (audioBytes.isNotEmpty() && !hasError.get()) {
-                withContext(Dispatchers.Main) {
-                    playMp3Bytes(audioBytes, onFinished)
-                }
-                return@withContext true
+                return@withContext audioBytes
             }
         } catch (e: Exception) {
             Log.e("MicrosoftTtsService", "Error during Edge-TTS: ${e.message}")
         }
 
-        return@withContext false
+        return@withContext null
     }
 
-    private suspend fun synthesizeWithHttpNeural(
-        text: String,
-        onFinished: (() -> Unit)?
-    ): Boolean = withContext(Dispatchers.IO) {
+    private suspend fun synthesizeWithHttpNeuralBytes(
+        text: String
+    ): ByteArray? = withContext(Dispatchers.IO) {
         try {
-            // High quality Google Neural / Translate TTS endpoint
             val encodedText = URLEncoder.encode(text.take(200), "UTF-8")
             val url = "https://translate.google.com/translate_tts?ie=UTF-8&q=$encodedText&tl=de-DE&total=1&idx=0&textlen=${text.length}&client=tw-ob"
 
@@ -255,83 +315,93 @@ class MicrosoftTtsService(private val context: Context) {
             if (resp.isSuccessful) {
                 val bytes = resp.body?.bytes()
                 if (bytes != null && bytes.isNotEmpty()) {
-                    withContext(Dispatchers.Main) {
-                        playMp3Bytes(bytes, onFinished)
-                    }
-                    return@withContext true
+                    return@withContext bytes
                 }
             }
         } catch (e: Exception) {
             Log.w("MicrosoftTtsService", "HTTP TTS failed: ${e.message}")
         }
-        return@withContext false
+        return@withContext null
     }
 
-    private fun playMp3Bytes(audioBytes: ByteArray, onFinished: (() -> Unit)?) {
-        try {
-            val tempFile = File(context.cacheDir, "jarvis_voice_${System.currentTimeMillis()}.mp3")
-            FileOutputStream(tempFile).use { it.write(audioBytes) }
+    private suspend fun playMp3BytesSuspending(audioBytes: ByteArray): Unit = suspendCancellableCoroutine { cont ->
+        scope.launch(Dispatchers.Main) {
+            try {
+                val tempFile = File(context.cacheDir, "jarvis_voice_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}.mp3")
+                FileOutputStream(tempFile).use { it.write(audioBytes) }
 
-            mediaPlayer?.release()
-            mediaPlayer = MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .setUsage(AudioAttributes.USAGE_ASSISTANT)
-                        .build()
-                )
-                setDataSource(tempFile.absolutePath)
-                setOnCompletionListener {
-                    _isSpeaking.value = false
-                    tempFile.delete()
-                    onFinished?.invoke()
+                mediaPlayer?.release()
+                val player = MediaPlayer().apply {
+                    setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                            .build()
+                    )
+                    setDataSource(tempFile.absolutePath)
+                    setOnCompletionListener {
+                        tempFile.delete()
+                        if (cont.isActive) cont.resume(Unit)
+                    }
+                    setOnErrorListener { _, _, _ ->
+                        tempFile.delete()
+                        if (cont.isActive) cont.resume(Unit)
+                        true
+                    }
+                    prepare()
+                    start()
                 }
-                setOnErrorListener { _, _, _ ->
-                    _isSpeaking.value = false
-                    tempFile.delete()
-                    onFinished?.invoke()
-                    true
+                mediaPlayer = player
+
+                cont.invokeOnCancellation {
+                    try {
+                        if (player.isPlaying) player.stop()
+                        player.release()
+                        tempFile.delete()
+                    } catch (e: Exception) {}
                 }
-                prepare()
-                start()
-                _isSpeaking.value = true
+            } catch (e: Exception) {
+                Log.e("MicrosoftTtsService", "MediaPlayer error: ${e.message}")
+                if (cont.isActive) cont.resume(Unit)
             }
-        } catch (e: Exception) {
-            Log.e("MicrosoftTtsService", "MediaPlayer error: ${e.message}")
-            _isSpeaking.value = false
-            onFinished?.invoke()
         }
     }
 
-    private fun speakWithAndroidFallback(text: String, onFinished: (() -> Unit)?) {
-        if (!isAndroidTtsReady || androidTts == null) {
-            _isSpeaking.value = false
-            onFinished?.invoke()
-            return
+    private suspend fun speakWithAndroidFallbackSuspending(text: String): Unit = suspendCancellableCoroutine { cont ->
+        scope.launch(Dispatchers.Main) {
+            if (!isAndroidTtsReady || androidTts == null) {
+                if (cont.isActive) cont.resume(Unit)
+                return@launch
+            }
+
+            val utteranceId = UUID.randomUUID().toString()
+            androidTts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+                override fun onStart(id: String?) {}
+
+                override fun onDone(id: String?) {
+                    if (id == utteranceId && cont.isActive) {
+                        cont.resume(Unit)
+                    }
+                }
+
+                override fun onError(id: String?) {
+                    if (id == utteranceId && cont.isActive) {
+                        cont.resume(Unit)
+                    }
+                }
+            })
+
+            cont.invokeOnCancellation {
+                try {
+                    androidTts?.stop()
+                } catch (e: Exception) {}
+            }
+
+            val params = android.os.Bundle().apply {
+                putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId)
+            }
+            androidTts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
         }
-
-        val utteranceId = UUID.randomUUID().toString()
-        androidTts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
-            override fun onStart(id: String?) {
-                _isSpeaking.value = true
-            }
-
-            override fun onDone(id: String?) {
-                Handler(Looper.getMainLooper()).post {
-                    _isSpeaking.value = false
-                    onFinished?.invoke()
-                }
-            }
-
-            override fun onError(id: String?) {
-                Handler(Looper.getMainLooper()).post {
-                    _isSpeaking.value = false
-                    onFinished?.invoke()
-                }
-            }
-        })
-
-        androidTts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
     }
 
     private fun cleanTextForSpeech(input: String): String {
